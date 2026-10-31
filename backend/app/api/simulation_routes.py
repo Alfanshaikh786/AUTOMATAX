@@ -21,3 +21,4 @@ def api_simulate_string(req: SingleSimulationRequest):
 @router.post("/batch", response_model=BatchSimulationResponse)
 def api_batch_simulate(req: BatchSimulationRequest):
     return batch_simulate(req.automaton, req.test_strings)
+

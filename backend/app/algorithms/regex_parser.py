@@ -173,3 +173,4 @@ class RegexParser:
             return RegexNode(type='EMPTY', value='∅')
         else:
             raise RegexParseError(f"Unexpected token '{tok[1]}'. Expected symbol, epsilon, or '('")
+

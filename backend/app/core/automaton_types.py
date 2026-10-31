@@ -29,3 +29,4 @@ class StepActionType(str, Enum):
     STATE_MERGE = "STATE_MERGE"
     STATE_ELIMINATE = "STATE_ELIMINATE"
     FINALIZE = "FINALIZE"
+

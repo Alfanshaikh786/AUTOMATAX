@@ -151,3 +151,4 @@ class DebugReport(BaseModel):
     suggestion_count: int
     issues: List[DebugIssue]
     summary: str
+

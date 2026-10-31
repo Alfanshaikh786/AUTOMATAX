@@ -83,6 +83,24 @@ export const api = {
     return handleResponse(res);
   },
 
+  async convertDfaToNfa(aut: AutomatonModel): Promise<ConversionResponse> {
+    const res = await fetch(`${BASE_URL}/conversions/dfa-to-nfa`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(aut),
+    });
+    return handleResponse(res);
+  },
+
+  async convertToEnfa(aut: AutomatonModel): Promise<ConversionResponse> {
+    const res = await fetch(`${BASE_URL}/conversions/to-enfa`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(aut),
+    });
+    return handleResponse(res);
+  },
+
   async convertToRegex(aut: AutomatonModel): Promise<{ regex: string; steps: any[]; summary: string }> {
     const res = await fetch(`${BASE_URL}/conversions/to-regex`, {
       method: 'POST',
@@ -276,3 +294,4 @@ export const api = {
     return handleResponse(res);
   }
 };
+

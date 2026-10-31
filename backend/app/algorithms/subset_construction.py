@@ -200,3 +200,4 @@ def convert_to_dfa_subset_construction(
         summary=f"Successfully constructed DFA with {len(dfa_states)} states from {aut.type.value} in {step_num} steps.",
         execution_time_ms=elapsed_ms
     )
+

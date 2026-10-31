@@ -7,3 +7,4 @@ router = APIRouter(prefix="/api/equivalence", tags=["Equivalence"])
 @router.post("/verify", response_model=EquivalenceResponse)
 def api_verify_equivalence(req: EquivalenceRequest):
     return check_automata_equivalence(req.automaton_a, req.automaton_b)
+

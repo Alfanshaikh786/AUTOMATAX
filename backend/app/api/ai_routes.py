@@ -11,3 +11,4 @@ class AIGenerateRequest(BaseModel):
 @router.post("/generate-automaton")
 def api_generate_automaton(req: AIGenerateRequest):
     return NaturalLanguageAutomataService.generate_from_prompt(req.prompt)
+

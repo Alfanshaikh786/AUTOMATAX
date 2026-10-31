@@ -150,3 +150,4 @@ export const ComparisonLab: React.FC<ComparisonLabProps> = ({ currentAutomaton }
     </div>
   );
 };
+

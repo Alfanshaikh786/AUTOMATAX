@@ -6,8 +6,23 @@ from app.algorithms.epsilon_elimination import convert_enfa_to_nfa
 from app.algorithms.subset_construction import convert_to_dfa_subset_construction
 from app.algorithms.minimization import minimize_dfa_hopcroft
 from app.algorithms.state_elimination import convert_automaton_to_regex
+from app.algorithms.conversion_embed import convert_dfa_to_nfa, convert_dfa_or_nfa_to_enfa
 
 router = APIRouter(prefix="/api/conversions", tags=["Conversions"])
+
+@router.post("/dfa-to-nfa", response_model=ConversionResponse)
+def api_dfa_to_nfa(aut: AutomatonModel):
+    try:
+        return convert_dfa_to_nfa(aut)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/to-enfa", response_model=ConversionResponse)
+def api_to_enfa(aut: AutomatonModel):
+    try:
+        return convert_dfa_or_nfa_to_enfa(aut)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/enfa-to-nfa", response_model=ConversionResponse)
 def api_enfa_to_nfa(aut: AutomatonModel):
@@ -40,3 +55,4 @@ def api_to_regex(aut: AutomatonModel):
         return convert_automaton_to_regex(aut)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+

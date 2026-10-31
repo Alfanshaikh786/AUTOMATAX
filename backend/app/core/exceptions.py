@@ -24,3 +24,4 @@ class RegexParseError(AutomataException):
 class GrammarParseError(AutomataException):
     """Raised when grammar syntax or production form is invalid."""
     pass
+

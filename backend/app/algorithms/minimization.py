@@ -331,3 +331,4 @@ def minimize_dfa_hopcroft(dfa: AutomatonModel) -> ConversionResponse:
         summary=f"Minimized DFA from {len(aut.states)} states to {len(block_names)} minimal states in {step_num} steps.",
         execution_time_ms=elapsed_ms
     )
+

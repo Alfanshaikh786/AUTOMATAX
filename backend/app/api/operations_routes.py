@@ -39,3 +39,4 @@ def api_kleene_star(aut: AutomatonModel):
 @router.post("/reversal", response_model=AutomatonModel)
 def api_reversal(aut: AutomatonModel):
     return operate_reversal(aut)
+

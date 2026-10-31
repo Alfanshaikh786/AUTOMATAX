@@ -176,3 +176,4 @@ export const WhatIfLab: React.FC<WhatIfLabProps> = ({
     </div>
   );
 };
+

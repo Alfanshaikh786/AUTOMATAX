@@ -33,3 +33,4 @@ class RegexConversionResult(BaseModel):
     steps: List[Dict[str, Any]] = Field(default_factory=list)
     glushkov_table: Optional[Dict[str, Any]] = None
     summary: str
+

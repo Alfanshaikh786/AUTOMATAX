@@ -19,3 +19,4 @@ class GrammarConversionResponse(BaseModel):
     automaton: Optional[Any] = None
     steps: List[Dict[str, Any]] = Field(default_factory=list)
     summary: str
+

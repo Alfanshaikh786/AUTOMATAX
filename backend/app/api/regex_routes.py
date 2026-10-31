@@ -61,3 +61,4 @@ def api_regex_to_minimal_dfa(req: RegexRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+

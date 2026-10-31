@@ -4,6 +4,7 @@ import { api } from './services/api';
 import { AutomataCanvas } from './components/graph/AutomataCanvas';
 import { TransitionTable } from './components/tables/TransitionTable';
 import { StepPlayer } from './components/conversion/StepPlayer';
+import { ConversionLabView } from './components/conversion/ConversionLabView';
 import { SimulationPane } from './components/simulator/SimulationPane';
 import { EquivalenceView } from './components/equivalence/EquivalenceView';
 import { DebuggerView } from './components/debugger/DebuggerView';
@@ -71,7 +72,7 @@ export function App() {
     }
   };
 
-  const handleConversion = async (type: 'enfa-to-nfa' | 'to-dfa' | 'minimize') => {
+  const handleConversion = async (type: 'enfa-to-nfa' | 'to-dfa' | 'minimize' | 'dfa-to-nfa' | 'to-enfa') => {
     try {
       setLoading(true);
       let res: ConversionResponse;
@@ -79,6 +80,10 @@ export function App() {
         res = await api.convertEnfaToNfa(currentAutomaton);
       } else if (type === 'to-dfa') {
         res = await api.convertToDfa(currentAutomaton);
+      } else if (type === 'dfa-to-nfa') {
+        res = await api.convertDfaToNfa(currentAutomaton);
+      } else if (type === 'to-enfa') {
+        res = await api.convertToEnfa(currentAutomaton);
       } else {
         res = await api.minimizeDfa(currentAutomaton);
       }
@@ -215,30 +220,74 @@ export function App() {
 
           {/* Quick Conversion Triggers */}
           <div className="flex items-center gap-2">
-            {currentAutomaton.type === 'ENFA' && (
-              <button
-                onClick={() => handleConversion('enfa-to-nfa')}
-                disabled={loading}
-                className="px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 rounded text-xs font-semibold text-purple-200 transition"
-              >
-                ε-Elimination (ε-NFA → NFA)
-              </button>
+            {currentAutomaton.type === 'DFA' && (
+              <>
+                <button
+                  onClick={() => handleConversion('dfa-to-nfa')}
+                  disabled={loading}
+                  className="px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 rounded text-xs font-semibold text-purple-200 transition"
+                  title="Every DFA is a special case of an NFA with singleton destination sets"
+                >
+                  Convert to NFA
+                </button>
+                <button
+                  onClick={() => handleConversion('to-enfa')}
+                  disabled={loading}
+                  className="px-2.5 py-1 bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 rounded text-xs font-semibold text-indigo-200 transition"
+                  title="Embed DFA into ε-NFA format with empty ε-transitions"
+                >
+                  Convert to ε-NFA
+                </button>
+              </>
             )}
 
-            {currentAutomaton.type !== 'DFA' && (
-              <button
-                onClick={() => handleConversion('to-dfa')}
-                disabled={loading}
-                className="px-2.5 py-1 bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 rounded text-xs font-semibold text-cyan-200 transition"
-              >
-                Subset Construction (→ DFA)
-              </button>
+            {currentAutomaton.type === 'NFA' && (
+              <>
+                <button
+                  onClick={() => handleConversion('to-dfa')}
+                  disabled={loading}
+                  className="px-2.5 py-1 bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 rounded text-xs font-semibold text-cyan-200 transition"
+                  title="Construct deterministic automaton via subset construction"
+                >
+                  Subset Construction (→ DFA)
+                </button>
+                <button
+                  onClick={() => handleConversion('to-enfa')}
+                  disabled={loading}
+                  className="px-2.5 py-1 bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 rounded text-xs font-semibold text-indigo-200 transition"
+                  title="Embed NFA into ε-NFA format"
+                >
+                  Convert to ε-NFA
+                </button>
+              </>
+            )}
+
+            {currentAutomaton.type === 'ENFA' && (
+              <>
+                <button
+                  onClick={() => handleConversion('enfa-to-nfa')}
+                  disabled={loading}
+                  className="px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 rounded text-xs font-semibold text-purple-200 transition"
+                  title="Eliminate ε-transitions by computing closures"
+                >
+                  ε-Elimination (ε-NFA → NFA)
+                </button>
+                <button
+                  onClick={() => handleConversion('to-dfa')}
+                  disabled={loading}
+                  className="px-2.5 py-1 bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 rounded text-xs font-semibold text-cyan-200 transition"
+                  title="Epsilon-aware subset construction"
+                >
+                  Convert to DFA
+                </button>
+              </>
             )}
 
             <button
               onClick={() => handleConversion('minimize')}
               disabled={loading}
               className="px-2.5 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/40 rounded text-xs font-semibold text-emerald-200 transition"
+              title="Hopcroft DFA partition refinement minimization"
             >
               Hopcroft Minimization
             </button>
@@ -325,49 +374,23 @@ export function App() {
             </div>
           )}
 
-          {activeTab === 'conversion' && conversion && (
-            <div className="flex flex-col gap-4">
-              <StepPlayer
-                conversion={conversion}
-                currentStepIndex={currentStepIndex}
-                onStepChange={handleStepChange}
-              />
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-xs font-semibold text-slate-400">Original Automaton:</span>
-                  <div className="h-[420px]">
-                    <AutomataCanvas
-                      automaton={conversion.original_automaton}
-                      readOnly={true}
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-cyan-400">
-                      Resulting {conversion.converted_automaton.type} ({conversion.converted_automaton.states.length} states):
-                    </span>
-                    <button
-                      onClick={() => {
-                        setCurrentAutomaton(conversion.converted_automaton);
-                        setActiveTab('builder');
-                      }}
-                      className="text-xs px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded font-medium transition"
-                    >
-                      Load into Builder
-                    </button>
-                  </div>
-                  <div className="h-[420px]">
-                    <AutomataCanvas
-                      automaton={conversion.converted_automaton}
-                      highlightStates={highlightStates}
-                      highlightTransitions={highlightTransitions}
-                      readOnly={false}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
+          {activeTab === 'conversion' && (
+            <ConversionLabView
+              currentAutomaton={currentAutomaton}
+              availableAutomata={availableAutomata}
+              onLoadIntoBuilder={(aut) => {
+                setCurrentAutomaton(aut);
+                setActiveTab('builder');
+              }}
+              conversion={conversion}
+              setConversion={setConversion}
+              currentStepIndex={currentStepIndex}
+              setCurrentStepIndex={setCurrentStepIndex}
+              highlightStates={highlightStates}
+              setHighlightStates={setHighlightStates}
+              highlightTransitions={highlightTransitions}
+              setHighlightTransitions={setHighlightTransitions}
+            />
           )}
 
           {activeTab === 'simulation' && (

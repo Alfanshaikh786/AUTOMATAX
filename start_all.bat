@@ -9,3 +9,4 @@ echo AutomataX services are launching!
 echo Frontend will be accessible at: http://127.0.0.1:5173
 echo Backend API docs available at:  http://127.0.0.1:8000/docs
 echo ========================================================
+

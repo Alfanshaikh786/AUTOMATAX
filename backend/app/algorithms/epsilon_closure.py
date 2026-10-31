@@ -53,3 +53,4 @@ def compute_epsilon_closure(
         combined_trace.extend(sub_trace)
 
     return total_closure, combined_trace
+

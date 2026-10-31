@@ -24,3 +24,4 @@ def api_automaton_to_grammar(aut: AutomatonModel):
         return convert_nfa_to_grammar(aut)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+

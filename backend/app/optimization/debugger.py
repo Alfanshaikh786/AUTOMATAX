@@ -204,3 +204,4 @@ def debug_automaton(automaton: AutomatonModel) -> DebugReport:
         issues=issues,
         summary=f"Diagnostics complete: {error_count} error(s), {warning_count} warning(s), {suggestion_count} suggestion(s)."
     )
+

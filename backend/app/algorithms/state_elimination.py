@@ -189,3 +189,4 @@ def convert_automaton_to_regex(automaton: AutomatonModel) -> Dict[str, Any]:
         "steps": steps,
         "summary": f"Derived regular expression: {final_regex} by eliminating {len(elimination_order)} states."
     }
+

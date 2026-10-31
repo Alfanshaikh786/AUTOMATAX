@@ -359,3 +359,4 @@ def convert_regex_to_glushkov(pattern: str) -> RegexConversionResult:
         glushkov_table=table,
         summary=f"Glushkov construction generated direct NFA with {len(aut.states)} states and 0 epsilon transitions."
     )
+

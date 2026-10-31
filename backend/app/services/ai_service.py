@@ -261,3 +261,4 @@ class NaturalLanguageAutomataService:
             "verification_tests": verification_results,
             "summary": f"Generated {aut.type.value} with {len(aut.states)} states. Mathematical verification: {'PASSED' if all_passed else 'FAILED'} ({len(verification_results)} test cases checked)."
         }
+

@@ -49,3 +49,4 @@ def api_get_projects():
 @router.post("/projects/create")
 def api_create_project(name: str, description: str = ""):
     return create_project(name, description)
+

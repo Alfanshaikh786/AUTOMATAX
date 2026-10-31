@@ -198,3 +198,4 @@ export const TransitionTable: React.FC<TransitionTableProps> = ({
     </div>
   );
 };
+

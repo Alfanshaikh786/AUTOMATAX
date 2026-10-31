@@ -48,3 +48,4 @@ def test_api_ai_generate():
     data = res.json()
     assert data["is_verified"] is True
     assert data["automaton"]["type"] == "DFA"
+

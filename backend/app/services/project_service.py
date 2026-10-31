@@ -215,3 +215,4 @@ def delete_automaton(aid: str) -> bool:
     conn.commit()
     conn.close()
     return changed
+

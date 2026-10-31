@@ -141,3 +141,4 @@ export interface Exercise {
   hints: string[];
   sample_tests: Array<{ input: string; expected: boolean }>;
 }
+

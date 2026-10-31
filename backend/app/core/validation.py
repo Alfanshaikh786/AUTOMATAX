@@ -79,3 +79,4 @@ def assert_valid_automaton(aut: AutomatonModel, enforce_complete_dfa: bool = Fal
     is_valid, errors = validate_automaton(aut, enforce_complete_dfa)
     if not is_valid:
         raise ValidationError("; ".join(errors), {"errors": errors})
+

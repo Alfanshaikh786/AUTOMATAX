@@ -182,3 +182,4 @@ def check_automata_equivalence(aut_a: AutomatonModel, aut_b: AutomatonModel) -> 
         ),
         details={"product_states_explored": len(visited)}
     )
+

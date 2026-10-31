@@ -173,3 +173,4 @@ cd backend
 venv\Scripts\pytest.exe -v
 ```
 All 16 algorithm and API integration tests will run and report status.
+

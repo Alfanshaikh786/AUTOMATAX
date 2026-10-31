@@ -27,3 +27,4 @@ def api_generate_pdf(req: ReportRequest):
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={req.automaton.name}_report.pdf"}
     )
+
