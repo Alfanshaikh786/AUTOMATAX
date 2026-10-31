@@ -77,6 +77,34 @@ class ConversionStep(BaseModel):
     table_snapshot: Optional[Dict[str, Any]] = None
     intermediate_automaton: Optional[AutomatonModel] = None
 
+class TransitionComparisonRow(BaseModel):
+    state: str
+    symbol: str
+    dfa_dest: str
+    dfa_notation: str
+    nfa_dest_set: List[str]
+    nfa_notation: str
+    is_singleton: bool
+    explanation: str
+
+class TestStringSimulation(BaseModel):
+    input_string: str
+    dfa_accepted: bool
+    nfa_accepted: bool
+    matches: bool
+    dfa_final_states: List[str]
+    nfa_final_states: List[str]
+
+class DFAtoNFAVerification(BaseModel):
+    is_equivalent: bool
+    counterexample: Optional[str] = None
+    explanation: str
+    validation_passed: bool
+    all_transitions_singleton: bool
+    total_transitions_checked: int
+    test_simulations: List[TestStringSimulation] = Field(default_factory=list)
+    comparison_table: List[TransitionComparisonRow] = Field(default_factory=list)
+
 class ConversionResponse(BaseModel):
     original_automaton: AutomatonModel
     converted_automaton: AutomatonModel
@@ -84,6 +112,8 @@ class ConversionResponse(BaseModel):
     steps: List[ConversionStep] = Field(default_factory=list)
     summary: str
     execution_time_ms: float = 0.0
+    verification: Optional[DFAtoNFAVerification] = None
+    comparison_table: Optional[List[TransitionComparisonRow]] = None
 
 class SimulationStep(BaseModel):
     step_index: int

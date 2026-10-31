@@ -44,6 +44,37 @@ export interface ConversionStep {
   intermediate_automaton?: AutomatonModel;
 }
 
+export interface TransitionComparisonRow {
+  state: string;
+  symbol: string;
+  dfa_dest: string;
+  dfa_notation: string;
+  nfa_dest_set: string[];
+  nfa_notation: string;
+  is_singleton: boolean;
+  explanation: string;
+}
+
+export interface TestStringSimulation {
+  input_string: string;
+  dfa_accepted: boolean;
+  nfa_accepted: boolean;
+  matches: boolean;
+  dfa_final_states: string[];
+  nfa_final_states: string[];
+}
+
+export interface DFAtoNFAVerification {
+  is_equivalent: boolean;
+  counterexample?: string | null;
+  explanation: string;
+  validation_passed: boolean;
+  all_transitions_singleton: boolean;
+  total_transitions_checked: number;
+  test_simulations: TestStringSimulation[];
+  comparison_table: TransitionComparisonRow[];
+}
+
 export interface ConversionResponse {
   original_automaton: AutomatonModel;
   converted_automaton: AutomatonModel;
@@ -51,6 +82,8 @@ export interface ConversionResponse {
   steps: ConversionStep[];
   summary: string;
   execution_time_ms: number;
+  verification?: DFAtoNFAVerification;
+  comparison_table?: TransitionComparisonRow[];
 }
 
 export interface SimulationStep {
