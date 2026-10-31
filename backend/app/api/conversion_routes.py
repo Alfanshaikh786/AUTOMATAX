@@ -38,6 +38,7 @@ def api_to_dfa(aut: AutomatonModel):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@router.post("/minimize", response_model=ConversionResponse)
 @router.post("/minimize-dfa", response_model=ConversionResponse)
 def api_minimize_dfa(aut: AutomatonModel):
     try:

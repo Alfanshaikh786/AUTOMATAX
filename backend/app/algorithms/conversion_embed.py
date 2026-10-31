@@ -112,3 +112,4 @@ def convert_dfa_or_nfa_to_enfa(automaton: AutomatonModel) -> ConversionResponse:
         summary=f"Converted {aut.type.value} '{aut.name}' to equivalent ε-NFA with empty ε-transitions.",
         execution_time_ms=(time.time() - start_time) * 1000.0
     )
+
