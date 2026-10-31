@@ -40,9 +40,17 @@ def validate_automaton(aut: AutomatonModel, enforce_complete_dfa: bool = False) 
     for src, symbol_map in aut.transitions.items():
         if src not in state_set:
             errors.append(f"Transition source state '{src}' is not in the set of defined states.")
+        if not isinstance(symbol_map, dict):
+            errors.append(f"Transitions for state '{src}' must be a dictionary mapping symbols to destination state lists.")
+            continue
         for sym, dests in symbol_map.items():
             if sym not in alphabet_set:
                 errors.append(f"Transition symbol '{sym}' from state '{src}' is not in the defined alphabet.")
+            if not isinstance(dests, list):
+                errors.append(f"Transition destination for state '{src}' on symbol '{sym}' must be a list/array of states, not {type(dests).__name__}.")
+                continue
+            if len(dests) != len(set(dests)):
+                errors.append(f"Duplicate destination states detected in transition from '{src}' on symbol '{sym}': {dests}.")
             for dst in dests:
                 if dst not in state_set:
                     errors.append(f"Transition destination '{dst}' from state '{src}' on '{sym}' is not in states.")
@@ -55,6 +63,11 @@ def validate_automaton(aut: AutomatonModel, enforce_complete_dfa: bool = False) 
         for src, dests in aut.epsilon_transitions.items():
             if src not in state_set:
                 errors.append(f"Epsilon transition source '{src}' is not in defined states.")
+            if not isinstance(dests, list):
+                errors.append(f"Epsilon destination for state '{src}' must be a list of states, not {type(dests).__name__}.")
+                continue
+            if len(dests) != len(set(dests)):
+                errors.append(f"Duplicate epsilon destination states from state '{src}': {dests}.")
             for dst in dests:
                 if dst not in state_set:
                     errors.append(f"Epsilon transition destination '{dst}' from '{src}' is not in defined states.")

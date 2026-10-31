@@ -74,3 +74,4 @@ def test_dfa_to_nfa_conversion():
     # Simulate on string "01"
     sim_res = simulate_string(multi_dest_nfa, "01")
     assert sim_res.is_accepted is True
+

@@ -70,9 +70,11 @@ def simulate_string(automaton: AutomatonModel, input_string: str) -> SimulationR
             )
             active_set = expanded_set
         else:
+            trans_str = ', '.join([f"δ({t['from']}, {symbol}) → {t['to']}" for t in transitions_taken]) or 'No valid transition'
             explanation = (
                 f"Consumed '{symbol}' (character {idx+1}/{len(input_string)}):\n"
-                f"• Next active states: {{{', '.join(sorted(next_states)) or '∅'}}}"
+                f"• Nondeterministic branch transitions: {{{trans_str}}}\n"
+                f"• Active state set: {{{', '.join(sorted(next_states)) or '∅'}}}"
             )
             active_set = next_states
 

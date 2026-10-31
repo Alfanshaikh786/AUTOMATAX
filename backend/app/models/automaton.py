@@ -23,6 +23,28 @@ class AutomatonModel(BaseModel):
     description: Optional[str] = ""
     created_at: float = Field(default_factory=time.time)
 
+    @model_validator(mode='before')
+    @classmethod
+    def normalize_transitions(cls, data: Any) -> Any:
+        if isinstance(data, dict) and 'transitions' in data and isinstance(data['transitions'], dict):
+            normalized_trans = {}
+            for s, sym_map in data['transitions'].items():
+                if isinstance(sym_map, dict):
+                    normalized_trans[s] = {}
+                    for sym, dests in sym_map.items():
+                        if isinstance(dests, str):
+                            # Handle string format e.g. "q0, q1" or "q0" or "∅"
+                            if dests.strip() in ("", "∅", "none", "-"):
+                                normalized_trans[s][sym] = []
+                            else:
+                                normalized_trans[s][sym] = [d.strip() for d in dests.split(',') if d.strip() and d.strip() != "∅"]
+                        elif isinstance(dests, list):
+                            normalized_trans[s][sym] = [d for d in dests if d != "∅"]
+                        else:
+                            normalized_trans[s][sym] = []
+            data['transitions'] = normalized_trans
+        return data
+
     def canonicalize(self) -> 'AutomatonModel':
         """Ensure states and alphabet lists are unique and deterministic."""
         clean_states = sorted(list(dict.fromkeys(self.states)))
@@ -32,20 +54,23 @@ class AutomatonModel(BaseModel):
         clean_trans: Dict[str, Dict[str, List[str]]] = {}
         for s in clean_states:
             clean_trans[s] = {}
-            if s in self.transitions:
-                for sym, dests in self.transitions[s].items():
-                    if sym in clean_alphabet:
-                        clean_dests = sorted(list(dict.fromkeys([d for d in dests if d in clean_states])))
-                        if clean_dests:
-                            clean_trans[s][sym] = clean_dests
+            for sym in clean_alphabet:
+                raw_dests = self.transitions.get(s, {}).get(sym, [])
+                if isinstance(raw_dests, str):
+                    raw_dests = [d.strip() for d in raw_dests.split(',') if d.strip() and d.strip() != "∅"]
+                clean_dests = sorted(list(dict.fromkeys([d for d in raw_dests if d in clean_states])))
+                clean_trans[s][sym] = clean_dests
 
         clean_eps: Dict[str, List[str]] = {}
         if self.type == AutomatonType.ENFA:
             for s in clean_states:
+                clean_eps[s] = []
                 if s in self.epsilon_transitions:
-                    clean_dests = sorted(list(dict.fromkeys([d for d in self.epsilon_transitions[s] if d in clean_states])))
-                    if clean_dests:
-                        clean_eps[s] = clean_dests
+                    raw_eps = self.epsilon_transitions[s]
+                    if isinstance(raw_eps, str):
+                        raw_eps = [d.strip() for d in raw_eps.split(',') if d.strip() and d.strip() != "∅"]
+                    clean_dests = sorted(list(dict.fromkeys([d for d in raw_eps if d in clean_states])))
+                    clean_eps[s] = clean_dests
 
         return AutomatonModel(
             id=self.id,
