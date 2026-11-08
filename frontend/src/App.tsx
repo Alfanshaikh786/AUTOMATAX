@@ -21,7 +21,7 @@ import { ExportModal } from './components/reports/ExportModal';
 import {
   Layers, Play, CheckCircle2, GitCompare, ShieldAlert, Sparkles,
   BookMarked, Network, Columns3, GraduationCap, Download, Plus,
-  Save, RotateCcw, HelpCircle, Code2, Cpu, Compass, Workflow
+  Save, RotateCcw, HelpCircle, Code2, Cpu, Compass, Workflow, GitFork
 } from 'lucide-react';
 
 const DEFAULT_AUTOMATON: AutomatonModel = {
@@ -112,7 +112,8 @@ export function App() {
 
   const navItems = [
     { id: 'builder', label: 'Automata Builder', icon: Cpu },
-    { id: 'dual-studio', label: 'Dual NFA/DFA Studio', icon: Workflow },
+    { id: 'dual-studio', label: 'Dual NFA Studio', icon: Workflow },
+    { id: 'dual-enfa-studio', label: 'Dual ε-NFA Studio', icon: GitFork },
     { id: 'conversion', label: 'Conversion Lab', icon: Layers },
     { id: 'simulation', label: 'String Simulator', icon: Play },
     { id: 'equivalence', label: 'Equivalence Checker', icon: GitCompare },
@@ -376,8 +377,10 @@ export function App() {
             </div>
           )}
 
-          {activeTab === 'dual-studio' && (
+          {(activeTab === 'dual-studio' || activeTab === 'dual-enfa-studio') && (
             <DualAutomataStudio
+              key={activeTab}
+              initialMode={activeTab === 'dual-enfa-studio' ? 'ENFA' : 'NFA'}
               onLoadAutomaton={(aut) => {
                 if (!availableAutomata.some((a) => a.id === aut.id)) {
                   setAvailableAutomata((prev) => [...prev, aut]);
