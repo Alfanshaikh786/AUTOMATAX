@@ -56,11 +56,11 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
   const applyDagreLayout = (force = false) => {
     if (!automaton.states.length) return;
     const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: 'LR', nodesep: 90, ranksep: 120 });
+    g.setGraph({ rankdir: 'LR', nodesep: 110, ranksep: 140, marginx: 60, marginy: 60 });
     g.setDefaultEdgeLabel(() => ({}));
 
     automaton.states.forEach((s) => {
-      g.setNode(s, { width: 70, height: 70 });
+      g.setNode(s, { width: 80, height: 80 });
     });
 
     // Add normal edges
@@ -96,6 +96,27 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
         newPositions[s] = { x: 150, y: 150 };
       }
     });
+
+    // Stagger collinear nodes so edges don't cut through intermediate states
+    const xValues = Object.values(newPositions).map((p) => Math.round(p.x / 20) * 20);
+    const uniqueX = new Set(xValues);
+    if (uniqueX.size === 1 && automaton.states.length > 2) {
+      automaton.states.forEach((s, idx) => {
+        if (idx % 2 === 1) {
+          newPositions[s].x += 140;
+        }
+      });
+    }
+
+    const yValues = Object.values(newPositions).map((p) => Math.round(p.y / 20) * 20);
+    const uniqueY = new Set(yValues);
+    if (uniqueY.size === 1 && automaton.states.length > 2) {
+      automaton.states.forEach((s, idx) => {
+        if (idx % 2 === 1) {
+          newPositions[s].y += 120;
+        }
+      });
+    }
 
     setPositions(newPositions);
     if (onChange && !readOnly) {
@@ -292,6 +313,194 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
     });
   }
 
+  // Precompute layout geometry for all edges to avoid overlaps and node collisions
+  const edgeList = Object.values(edgeGroups).map((edge, idx) => {
+    const p1 = positions[edge.from] || { x: 100, y: 100 };
+    const p2 = positions[edge.to] || { x: 300, y: 100 };
+
+    const isSelfLoop = edge.from === edge.to;
+    const isReverse = Boolean(edgeGroups[`${edge.to}->${edge.from}`]) && !isSelfLoop;
+
+    const isHighlighted = highlightTransitions.some(
+      (t) => t.from === edge.from && t.to === edge.to && edge.symbols.includes(t.symbol)
+    );
+
+    const isEpsOnly = edge.symbols.length === 1 && edge.symbols[0] === 'ε';
+    const hasEps = edge.symbols.includes('ε');
+
+    let strokeColor = '#64748b';
+    let markerEnd = 'url(#arrowhead)';
+    let isDashed = false;
+    let badgeBg = '#0b0f19';
+    let badgeBorder = '#475569';
+    let badgeTextColor = '#e2e8f0';
+
+    if (isHighlighted) {
+      strokeColor = '#06b6d4';
+      markerEnd = 'url(#arrowhead-active)';
+      badgeBg = '#082f49';
+      badgeBorder = '#06b6d4';
+      badgeTextColor = '#67e8f9';
+    } else if (isEpsOnly) {
+      strokeColor = '#c084fc';
+      markerEnd = 'url(#arrowhead-epsilon)';
+      isDashed = true;
+      badgeBg = '#2e1065';
+      badgeBorder = '#c084fc';
+      badgeTextColor = '#f3e8ff';
+    } else if (hasEps) {
+      strokeColor = '#a855f7';
+      markerEnd = 'url(#arrowhead-epsilon)';
+      badgeBg = '#1e1b4b';
+      badgeBorder = '#a855f7';
+      badgeTextColor = '#f5f3ff';
+    }
+
+    if (isSelfLoop) {
+      const loopRadius = 26;
+      const loopX = p1.x;
+      const loopY = p1.y - 32;
+      const pathD = `M ${p1.x - 14} ${p1.y - 24} A ${loopRadius} ${loopRadius} 0 1 1 ${p1.x + 14} ${p1.y - 24}`;
+      const labelWidth = Math.max(28, edge.symbols.join(', ').length * 8 + 14);
+
+      return {
+        ...edge,
+        idx,
+        isSelfLoop: true,
+        pathD,
+        labelX: loopX,
+        labelY: loopY - 26,
+        labelWidth,
+        labelHeight: 20,
+        ux: 0,
+        uy: -1,
+        strokeColor,
+        markerEnd,
+        isDashed,
+        isHighlighted,
+        badgeBg,
+        badgeBorder,
+        badgeTextColor,
+      };
+    }
+
+    // Normal transition geometry
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const ux = dx / dist;
+    const uy = dy / dist;
+    const nx = -uy;
+    const ny = ux;
+
+    // Check for intermediate obstacle states
+    let maxObstacleAvoidance = 0;
+    let obstacleSide = 1;
+
+    automaton.states.forEach((s) => {
+      if (s === edge.from || s === edge.to) return;
+      const sp = positions[s];
+      if (!sp) return;
+      const vx = sp.x - p1.x;
+      const vy = sp.y - p1.y;
+      const t = (vx * ux + vy * uy) / dist;
+      if (t > 0.08 && t < 0.92) {
+        const perp = vx * nx + vy * ny;
+        const absPerp = Math.abs(perp);
+        if (absPerp < 55) {
+          const needed = Math.max(58, 68 - absPerp);
+          if (needed > maxObstacleAvoidance) {
+            maxObstacleAvoidance = needed;
+            if (absPerp < 8) {
+              obstacleSide = edge.from < edge.to ? 1 : -1;
+            } else {
+              obstacleSide = perp > 0 ? -1 : 1;
+            }
+          }
+        }
+      }
+    });
+
+    let apexOffset = 0;
+    if (maxObstacleAvoidance > 0) {
+      apexOffset = obstacleSide * Math.max(58, maxObstacleAvoidance);
+    } else if (isReverse) {
+      apexOffset = 30;
+    }
+
+    const M = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    let pathD = '';
+    let labelX = M.x;
+    let labelY = M.y;
+
+    if (apexOffset === 0) {
+      const nodeR = 30;
+      const startX = p1.x + ux * nodeR;
+      const startY = p1.y + uy * nodeR;
+      const endX = p2.x - ux * (nodeR + 6);
+      const endY = p2.y - uy * (nodeR + 6);
+      pathD = `M ${startX} ${startY} L ${endX} ${endY}`;
+    } else {
+      const ctrlX = M.x + 2 * apexOffset * nx;
+      const ctrlY = M.y + 2 * apexOffset * ny;
+
+      const t0x = ctrlX - p1.x;
+      const t0y = ctrlY - p1.y;
+      const t0Len = Math.hypot(t0x, t0y) || 1;
+      const startX = p1.x + (t0x / t0Len) * 30;
+      const startY = p1.y + (t0y / t0Len) * 30;
+
+      const t1x = p2.x - ctrlX;
+      const t1y = p2.y - ctrlY;
+      const t1Len = Math.hypot(t1x, t1y) || 1;
+      const endX = p2.x - (t1x / t1Len) * 36;
+      const endY = p2.y - (t1y / t1Len) * 36;
+
+      pathD = `M ${startX} ${startY} Q ${ctrlX} ${ctrlY} ${endX} ${endY}`;
+      labelX = M.x + apexOffset * nx;
+      labelY = M.y + apexOffset * ny;
+    }
+
+    const labelWidth = Math.max(30, edge.symbols.join(', ').length * 8 + 14);
+
+    return {
+      ...edge,
+      idx,
+      isSelfLoop: false,
+      pathD,
+      labelX,
+      labelY,
+      labelWidth,
+      labelHeight: 20,
+      ux,
+      uy,
+      strokeColor,
+      markerEnd,
+      isDashed,
+      isHighlighted,
+      badgeBg,
+      badgeBorder,
+      badgeTextColor,
+    };
+  });
+
+  // Label De-Collision: ensure no two badges overlap each other
+  for (let i = 0; i < edgeList.length; i++) {
+    for (let j = i + 1; j < edgeList.length; j++) {
+      const e1 = edgeList[i];
+      const e2 = edgeList[j];
+      const dist = Math.hypot(e1.labelX - e2.labelX, e1.labelY - e2.labelY);
+      if (dist < 26) {
+        if (e2.ux !== undefined && e2.uy !== undefined) {
+          e2.labelX += e2.ux * 20;
+          e2.labelY += e2.uy * 20;
+        } else {
+          e2.labelY -= 20;
+        }
+      }
+    }
+  }
+
   return (
     <div className="relative w-full h-full min-h-[480px] bg-slate-950/80 border border-slate-800 rounded-xl overflow-hidden select-none">
       {/* Controls Bar */}
@@ -405,6 +614,16 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
             <polygon points="0 0, 10 3.5, 0 7" fill="#06b6d4" />
           </marker>
           <marker
+            id="arrowhead-epsilon"
+            markerWidth="10"
+            markerHeight="7"
+            refX="9"
+            refY="3.5"
+            orient="auto"
+          >
+            <polygon points="0 0, 10 3.5, 0 7" fill="#c084fc" />
+          </marker>
+          <marker
             id="start-arrow"
             markerWidth="12"
             markerHeight="8"
@@ -423,119 +642,128 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
           </pattern>
           <rect x="-2000" y="-2000" width="4000" height="4000" fill="url(#grid)" pointerEvents="none" />
 
-          {/* Render Transitions */}
-          {Object.values(edgeGroups).map((edge, idx) => {
-            const p1 = positions[edge.from] || { x: 100, y: 100 };
-            const p2 = positions[edge.to] || { x: 300, y: 100 };
+          {/* LAYER 1: Transitions Paths (Lines & Curves) */}
+          <g id="layer-paths">
+            {edgeList.map((edge) => (
+              <path
+                key={`path-${edge.from}->${edge.to}-${edge.idx}`}
+                d={edge.pathD}
+                fill="none"
+                stroke={edge.strokeColor}
+                strokeWidth={edge.isHighlighted ? 2.5 : edge.isEpsilon ? 2 : 1.75}
+                strokeDasharray={edge.isDashed ? '6,4' : undefined}
+                markerEnd={edge.markerEnd}
+                className="transition-colors duration-150"
+              />
+            ))}
+          </g>
 
-            const isSelfLoop = edge.from === edge.to;
-            const isReverse = edgeGroups[`${edge.to}->${edge.from}`] && edge.from !== edge.to;
+          {/* LAYER 2: State Nodes */}
+          <g id="layer-nodes">
+            {automaton.states.map((s) => {
+              const pos = positions[s] || { x: 150, y: 150 };
+              const isInitial = s === automaton.initial_state;
+              const isAccepting = automaton.accepting_states.includes(s);
+              const isSelected = selectedState === s;
+              const isHighlighted = highlightStates.includes(s);
 
-            const isHighlighted = highlightTransitions.some(
-              (t) => t.from === edge.from && t.to === edge.to && edge.symbols.includes(t.symbol)
-            );
-
-            const strokeColor = isHighlighted ? '#06b6d4' : edge.isEpsilon ? '#a855f7' : '#64748b';
-            const markerEnd = isHighlighted ? 'url(#arrowhead-active)' : 'url(#arrowhead)';
-
-            if (isSelfLoop) {
-              // Self-loop arc
-              const loopRadius = 26;
-              const loopX = p1.x;
-              const loopY = p1.y - 32;
-              const pathD = `M ${p1.x - 14} ${p1.y - 24} A ${loopRadius} ${loopRadius} 0 1 1 ${p1.x + 14} ${p1.y - 24}`;
-
-              const labelWidth = Math.max(26, edge.symbols.join(',').length * 8 + 10);
+              let fillColor = '#111827';
+              let strokeColor = isInitial ? '#10b981' : isAccepting ? '#ef4444' : '#475569';
+              if (isSelected) {
+                strokeColor = '#06b6d4';
+                fillColor = '#164e63';
+              } else if (isHighlighted) {
+                strokeColor = '#38bdf8';
+                fillColor = '#0369a1';
+              }
 
               return (
-                <g key={`edge-${idx}`} className="group">
-                  <path
-                    d={pathD}
-                    fill="none"
+                <g
+                  key={`node-${s}`}
+                  transform={`translate(${pos.x}, ${pos.y})`}
+                  onMouseDown={(e) => handleMouseDownNode(s, e)}
+                  className="cursor-pointer group"
+                >
+                  {/* Initial State Arrow */}
+                  {isInitial && (
+                    <line
+                      x1="-65"
+                      y1="0"
+                      x2="-34"
+                      y2="0"
+                      stroke="#10b981"
+                      strokeWidth="3"
+                      markerEnd="url(#start-arrow)"
+                    />
+                  )}
+
+                  {/* Outer Base Circle */}
+                  <circle
+                    r="30"
+                    fill={fillColor}
                     stroke={strokeColor}
-                    strokeWidth={isHighlighted ? 2.5 : 1.75}
-                    markerEnd={markerEnd}
+                    strokeWidth={isSelected || isHighlighted ? 3 : 2}
+                    className="transition-colors duration-150"
                   />
-                  <rect
-                    x={loopX - labelWidth / 2}
-                    y={loopY - 26}
-                    width={labelWidth}
-                    height={18}
-                    rx={4}
-                    fill="#090d16"
-                    stroke={strokeColor}
-                    strokeWidth={1}
-                    className="cursor-pointer hover:stroke-cyan-400 transition"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!readOnly) {
-                        setEditingTransition({
-                          from: edge.from,
-                          to: edge.to,
-                          initialSymbols: edge.symbols,
-                          isNew: false,
-                        });
-                      }
-                    }}
-                  />
+
+                  {/* Double Circle for Accepting State */}
+                  {isAccepting && (
+                    <circle
+                      r="24"
+                      fill="none"
+                      stroke={strokeColor}
+                      strokeWidth="1.75"
+                    />
+                  )}
+
+                  {/* State Label */}
                   <text
-                    x={loopX}
-                    y={loopY - 13}
+                    y="4"
                     textAnchor="middle"
-                    fill={isHighlighted ? '#67e8f9' : '#cbd5e1'}
-                    fontSize="11"
+                    fill="#f8fafc"
+                    fontSize="13"
                     fontWeight="600"
                     fontFamily="monospace"
-                    className="pointer-events-none"
+                    pointerEvents="none"
                   >
-                    {edge.symbols.join(',')}
+                    {s}
                   </text>
+
+                  {/* Quick connect button on hover if not readOnly */}
+                  {!readOnly && (
+                    <circle
+                      cx="26"
+                      cy="-26"
+                      r="9"
+                      fill="#0284c7"
+                      className="opacity-0 group-hover:opacity-100 transition cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConnectingFrom(s);
+                      }}
+                    >
+                      <title>Connect transition from this state</title>
+                    </circle>
+                  )}
                 </g>
               );
-            }
+            })}
+          </g>
 
-            // Normal transition curve
-            const dx = p2.x - p1.x;
-            const dy = p2.y - p1.y;
-            const dist = Math.hypot(dx, dy) || 1;
-            const nodeRadius = 32;
-
-            // Offset for curved bi-directional transitions
-            const curveOffset = isReverse ? 26 : 0;
-            const midX = (p1.x + p2.x) / 2 + (-dy / dist) * curveOffset;
-            const midY = (p1.y + p2.y) / 2 + (dx / dist) * curveOffset;
-
-            // Shorten path to touch outer boundary of node
-            const startX = p1.x + (dx / dist) * nodeRadius;
-            const startY = p1.y + (dy / dist) * nodeRadius;
-            const endX = p2.x - (dx / dist) * (nodeRadius + 6);
-            const endY = p2.y - (dy / dist) * (nodeRadius + 6);
-
-            const pathD = isReverse
-              ? `M ${startX} ${startY} Q ${midX} ${midY} ${endX} ${endY}`
-              : `M ${startX} ${startY} L ${endX} ${endY}`;
-
-            const labelWidth = Math.max(26, edge.symbols.join(',').length * 8 + 10);
-
-            return (
-              <g key={`edge-${idx}`} className="group">
-                <path
-                  d={pathD}
-                  fill="none"
-                  stroke={strokeColor}
-                  strokeWidth={isHighlighted ? 2.5 : 1.75}
-                  markerEnd={markerEnd}
-                />
+          {/* LAYER 3: Edge Labels (Always rendered on top so never covered!) */}
+          <g id="layer-labels">
+            {edgeList.map((edge) => (
+              <g key={`label-${edge.from}->${edge.to}-${edge.idx}`} className="group cursor-pointer">
                 <rect
-                  x={midX - labelWidth / 2}
-                  y={midY - 9}
-                  width={labelWidth}
-                  height={18}
-                  rx={4}
-                  fill="#0b0f19"
-                  stroke={strokeColor}
-                  strokeWidth={1}
-                  className="cursor-pointer hover:stroke-cyan-400 transition"
+                  x={edge.labelX - edge.labelWidth / 2}
+                  y={edge.labelY - edge.labelHeight / 2}
+                  width={edge.labelWidth}
+                  height={edge.labelHeight}
+                  rx={5}
+                  fill={edge.badgeBg}
+                  stroke={edge.badgeBorder}
+                  strokeWidth={1.5}
+                  className="hover:scale-110 hover:stroke-cyan-400 transition-all duration-150 shadow-md"
                   onClick={(e) => {
                     e.stopPropagation();
                     if (!readOnly) {
@@ -549,110 +777,20 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
                   }}
                 />
                 <text
-                  x={midX}
-                  y={midY + 4}
+                  x={edge.labelX}
+                  y={edge.labelY + 4}
                   textAnchor="middle"
-                  fill={isHighlighted ? '#67e8f9' : '#cbd5e1'}
-                  fontSize="11"
-                  fontWeight="600"
-                  fontFamily="monospace"
-                  className="pointer-events-none"
-                >
-                  {edge.symbols.join(',')}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Render States */}
-          {automaton.states.map((s) => {
-            const pos = positions[s] || { x: 150, y: 150 };
-            const isInitial = s === automaton.initial_state;
-            const isAccepting = automaton.accepting_states.includes(s);
-            const isSelected = selectedState === s;
-            const isHighlighted = highlightStates.includes(s);
-
-            let fillColor = '#111827';
-            let strokeColor = isInitial ? '#10b981' : isAccepting ? '#ef4444' : '#475569';
-            if (isSelected) {
-              strokeColor = '#06b6d4';
-              fillColor = '#164e63';
-            } else if (isHighlighted) {
-              strokeColor = '#38bdf8';
-              fillColor = '#0369a1';
-            }
-
-            return (
-              <g
-                key={`node-${s}`}
-                transform={`translate(${pos.x}, ${pos.y})`}
-                onMouseDown={(e) => handleMouseDownNode(s, e)}
-                className="cursor-pointer group"
-              >
-                {/* Initial State Arrow */}
-                {isInitial && (
-                  <line
-                    x1="-65"
-                    y1="0"
-                    x2="-34"
-                    y2="0"
-                    stroke="#10b981"
-                    strokeWidth="3"
-                    markerEnd="url(#start-arrow)"
-                  />
-                )}
-
-                {/* Outer Base Circle */}
-                <circle
-                  r="30"
-                  fill={fillColor}
-                  stroke={strokeColor}
-                  strokeWidth={isSelected || isHighlighted ? 3 : 2}
-                  className="transition-colors duration-150"
-                />
-
-                {/* Double Circle for Accepting State */}
-                {isAccepting && (
-                  <circle
-                    r="24"
-                    fill="none"
-                    stroke={strokeColor}
-                    strokeWidth="1.75"
-                  />
-                )}
-
-                {/* State Label */}
-                <text
-                  y="4"
-                  textAnchor="middle"
-                  fill="#f8fafc"
-                  fontSize="13"
-                  fontWeight="600"
+                  fill={edge.badgeTextColor}
+                  fontSize="12"
+                  fontWeight="700"
                   fontFamily="monospace"
                   pointerEvents="none"
                 >
-                  {s}
+                  {edge.symbols.join(', ')}
                 </text>
-
-                {/* Quick connect button on hover if not readOnly */}
-                {!readOnly && (
-                  <circle
-                    cx="26"
-                    cy="-26"
-                    r="9"
-                    fill="#0284c7"
-                    className="opacity-0 group-hover:opacity-100 transition cursor-pointer"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setConnectingFrom(s);
-                    }}
-                  >
-                    <title>Connect transition from this state</title>
-                  </circle>
-                )}
               </g>
-            );
-          })}
+            ))}
+          </g>
         </g>
       </svg>
 
