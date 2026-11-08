@@ -1,9 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AutomatonModel } from '../../types/automata';
 import { AutomataCanvas } from '../graph/AutomataCanvas';
 import {
   Layers, ArrowRight, Plus, Trash2, RotateCcw,
-  Sparkles, Check, CheckCircle2, FileText, Share2, Compass, ExternalLink
+  Sparkles, Check, CheckCircle2, FileText, Share2, Compass, ExternalLink, AlertCircle, Info
 } from 'lucide-react';
 
 interface DualAutomataStudioProps {
@@ -112,6 +112,38 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({ onLoadAu
   const [transFrom, setTransFrom] = useState<string>('A');
   const [transTo, setTransTo] = useState<string>('A');
   const [selectedDeleteTrans, setSelectedDeleteTrans] = useState<string>('');
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+
+  // Synchronize transition form controls whenever NFA states or alphabet change
+  useEffect(() => {
+    if (nfa.states.length > 0) {
+      if (!nfa.states.includes(transFrom)) {
+        setTransFrom(nfa.states[0]);
+      }
+      if (!nfa.states.includes(transTo)) {
+        setTransTo(nfa.states[0]);
+      }
+    } else {
+      setTransFrom('');
+      setTransTo('');
+    }
+
+    if (nfa.alphabet.length > 0) {
+      if (!nfa.alphabet.includes(transSymbol)) {
+        setTransSymbol(nfa.alphabet[0]);
+      }
+    } else {
+      setTransSymbol('');
+    }
+  }, [nfa.states, nfa.alphabet, transFrom, transTo, transSymbol]);
+
+  // Auto-dismiss feedback message after 4 seconds
+  useEffect(() => {
+    if (feedback) {
+      const timer = setTimeout(() => setFeedback(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [feedback]);
 
   // Real-time subset construction algorithm to calculate DFA, formal definitions, and tables
   const { dfa, stateMappings, dfaTransitionsTable, nfaTransitionList, dfaTransitionList } = useMemo(() => {
@@ -268,21 +300,35 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({ onLoadAu
     const s = inputNewState.trim();
     if (!s) return;
     if (nfa.states.includes(s)) {
-      alert(`State '${s}' already exists.`);
+      setFeedback({ type: 'error', text: `State '${s}' already exists.` });
       return;
     }
     const newStates = [...nfa.states, s];
+    const newTrans: Record<string, Record<string, string[]>> = {};
+    newStates.forEach((st) => {
+      newTrans[st] = {};
+      nfa.alphabet.forEach((sym) => {
+        newTrans[st][sym] = st === s ? [] : [...(nfa.transitions[st]?.[sym] || [])];
+      });
+    });
+
     setNfa({
       ...nfa,
       states: newStates,
       initial_state: nfa.initial_state || s,
+      transitions: newTrans,
     });
     setInputNewState('');
+    setFeedback({ type: 'success', text: `✓ Added state '${s}'` });
   };
 
   const handleDeleteState = () => {
     if (!selectedDeleteState) return;
     const s = selectedDeleteState;
+    if (nfa.states.length <= 1) {
+      setFeedback({ type: 'error', text: 'Automaton must retain at least one state.' });
+      return;
+    }
     const newStates = nfa.states.filter((st) => st !== s);
     const newAcc = nfa.accepting_states.filter((st) => st !== s);
     const newInit = nfa.initial_state === s ? (newStates[0] || '') : nfa.initial_state;
@@ -305,29 +351,42 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({ onLoadAu
       transitions: newTrans,
     });
     setSelectedDeleteState('');
+    setFeedback({ type: 'info', text: `Deleted state '${s}'` });
   };
 
   const handleAddSymbol = () => {
     const sym = inputNewSymbol.trim();
     if (!sym) return;
-    if (sym === 'ε' || sym === 'e') {
-      alert("Ordinary alphabet symbols cannot be ε.");
+    if (sym === 'ε' || sym === 'e' || sym === 'epsilon') {
+      setFeedback({ type: 'error', text: 'Ordinary alphabet symbols cannot be ε.' });
       return;
     }
     if (nfa.alphabet.includes(sym)) {
-      alert(`Symbol '${sym}' already exists.`);
+      setFeedback({ type: 'error', text: `Symbol '${sym}' already exists.` });
       return;
     }
     const newAlpha = [...nfa.alphabet, sym];
-    setNfa({ ...nfa, alphabet: newAlpha });
+    const newTrans: Record<string, Record<string, string[]>> = {};
+    nfa.states.forEach((st) => {
+      newTrans[st] = {};
+      newAlpha.forEach((a) => {
+        newTrans[st][a] = a === sym ? [] : [...(nfa.transitions[st]?.[a] || [])];
+      });
+    });
+
+    setNfa({ ...nfa, alphabet: newAlpha, transitions: newTrans });
     setInputNewSymbol('');
+    setFeedback({ type: 'success', text: `✓ Added symbol '${sym}'` });
   };
 
   const handleDeleteSymbol = () => {
     if (!selectedDeleteSymbol) return;
     const sym = selectedDeleteSymbol;
+    if (nfa.alphabet.length <= 1) {
+      setFeedback({ type: 'error', text: 'Automaton must retain at least one symbol.' });
+      return;
+    }
     const newAlpha = nfa.alphabet.filter((x) => x !== sym);
-
     const newTrans: Record<string, Record<string, string[]>> = {};
     nfa.states.forEach((st) => {
       newTrans[st] = {};
@@ -342,10 +401,12 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({ onLoadAu
 
     setNfa({ ...nfa, alphabet: newAlpha, transitions: newTrans });
     setSelectedDeleteSymbol('');
+    setFeedback({ type: 'info', text: `Deleted symbol '${sym}'` });
   };
 
   const handleSetStartState = (s: string) => {
     setNfa({ ...nfa, initial_state: s });
+    setFeedback({ type: 'info', text: `Start state set to '${s}'` });
   };
 
   const handleAddFinalState = () => {
@@ -355,6 +416,7 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({ onLoadAu
         ...nfa,
         accepting_states: [...nfa.accepting_states, selectedAddFinalState],
       });
+      setFeedback({ type: 'success', text: `Marked '${selectedAddFinalState}' as final state.` });
     }
     setSelectedAddFinalState('');
   };
@@ -365,18 +427,47 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({ onLoadAu
       ...nfa,
       accepting_states: nfa.accepting_states.filter((s) => s !== selectedDeleteFinalState),
     });
+    setFeedback({ type: 'info', text: `Removed final status from '${selectedDeleteFinalState}'` });
     setSelectedDeleteFinalState('');
   };
 
   const handleAddTransition = () => {
-    if (!transSymbol || !transFrom || !transTo) return;
-    const newTrans = { ...nfa.transitions };
-    if (!newTrans[transFrom]) newTrans[transFrom] = {};
-    const currDests = newTrans[transFrom][transSymbol] || [];
-    if (!currDests.includes(transTo)) {
-      newTrans[transFrom][transSymbol] = [...currDests, transTo];
+    const from = nfa.states.includes(transFrom) ? transFrom : nfa.states[0];
+    const to = nfa.states.includes(transTo) ? transTo : nfa.states[0];
+    const sym = nfa.alphabet.includes(transSymbol) ? transSymbol : nfa.alphabet[0];
+
+    if (!from || !to || !sym) {
+      setFeedback({ type: 'error', text: 'States and symbols must exist to create transitions.' });
+      return;
     }
+
+    // Deep clone transitions
+    const newTrans: Record<string, Record<string, string[]>> = {};
+    nfa.states.forEach((s) => {
+      newTrans[s] = {};
+      nfa.alphabet.forEach((a) => {
+        newTrans[s][a] = [...(nfa.transitions[s]?.[a] || [])];
+      });
+    });
+
+    if (!newTrans[from]) newTrans[from] = {};
+    if (!newTrans[from][sym]) newTrans[from][sym] = [];
+
+    const currDests = newTrans[from][sym];
+    if (currDests.includes(to)) {
+      setFeedback({
+        type: 'info',
+        text: `Transition δ(${from}, ${sym}) = {${to}} already exists.`,
+      });
+      return;
+    }
+
+    newTrans[from][sym] = [...currDests, to];
     setNfa({ ...nfa, transitions: newTrans });
+    setFeedback({
+      type: 'success',
+      text: `✓ Added transition δ(${from}, ${sym}) = {${to}}`,
+    });
   };
 
   const handleDeleteTransition = () => {
@@ -385,12 +476,22 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({ onLoadAu
     const [from, sym, to] = selectedDeleteTrans.split('|');
     if (!from || !sym || !to) return;
 
-    const newTrans = { ...nfa.transitions };
-    if (newTrans[from] && newTrans[from][sym]) {
-      newTrans[from][sym] = newTrans[from][sym].filter((d) => d !== to);
-    }
+    const newTrans: Record<string, Record<string, string[]>> = {};
+    nfa.states.forEach((s) => {
+      newTrans[s] = {};
+      nfa.alphabet.forEach((a) => {
+        const dests = nfa.transitions[s]?.[a] || [];
+        if (s === from && a === sym) {
+          newTrans[s][a] = dests.filter((d) => d !== to);
+        } else {
+          newTrans[s][a] = [...dests];
+        }
+      });
+    });
+
     setNfa({ ...nfa, transitions: newTrans });
     setSelectedDeleteTrans('');
+    setFeedback({ type: 'info', text: `Removed transition δ(${from}, ${sym}) = {${to}}` });
   };
 
   const handleReset = () => {
@@ -405,18 +506,34 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({ onLoadAu
       transitions: { q0: { "0": [], "1": [] } },
       epsilon_transitions: {},
     });
+    setTransFrom('q0');
+    setTransTo('q0');
+    setTransSymbol('0');
+    setSelectedDeleteState('');
+    setSelectedDeleteSymbol('');
+    setSelectedAddFinalState('');
+    setSelectedDeleteFinalState('');
+    setSelectedDeleteTrans('');
+    setFeedback({ type: 'info', text: 'Reset NFA to single state q0.' });
   };
 
   const handleLoadSample = (sampleKey: string) => {
     if (PRESET_SAMPLES[sampleKey]) {
-      setNfa(JSON.parse(JSON.stringify(PRESET_SAMPLES[sampleKey].nfa)));
-      if (PRESET_SAMPLES[sampleKey].nfa.states.length > 0) {
-        setTransFrom(PRESET_SAMPLES[sampleKey].nfa.states[0]);
-        setTransTo(PRESET_SAMPLES[sampleKey].nfa.states[0]);
+      const sample = JSON.parse(JSON.stringify(PRESET_SAMPLES[sampleKey].nfa));
+      setNfa(sample);
+      if (sample.states.length > 0) {
+        setTransFrom(sample.states[0]);
+        setTransTo(sample.states[0]);
       }
-      if (PRESET_SAMPLES[sampleKey].nfa.alphabet.length > 0) {
-        setTransSymbol(PRESET_SAMPLES[sampleKey].nfa.alphabet[0]);
+      if (sample.alphabet.length > 0) {
+        setTransSymbol(sample.alphabet[0]);
       }
+      setSelectedDeleteState('');
+      setSelectedDeleteSymbol('');
+      setSelectedAddFinalState('');
+      setSelectedDeleteFinalState('');
+      setSelectedDeleteTrans('');
+      setFeedback({ type: 'success', text: `Loaded ${PRESET_SAMPLES[sampleKey].name}` });
     }
   };
 
@@ -658,49 +775,96 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({ onLoadAu
             </div>
 
             {/* Add Transition */}
-            <div className="flex flex-col gap-1 border-t border-slate-800 pt-2">
-              <label className="text-[11px] font-semibold text-cyan-400">
-                Add Transition: δ(from, symbol) = to
-              </label>
-              <div className="flex items-center gap-1.5">
-                <select
-                  value={transSymbol}
-                  onChange={(e) => setTransSymbol(e.target.value)}
-                  title="Symbol"
-                  className="w-16 bg-slate-950 border border-slate-750 focus:border-cyan-500 rounded px-1.5 py-1 text-cyan-300 font-mono font-bold outline-none"
-                >
-                  {nfa.alphabet.map((sym) => (
-                    <option key={sym} value={sym}>{sym}</option>
-                  ))}
-                </select>
-                <select
-                  value={transFrom}
-                  onChange={(e) => setTransFrom(e.target.value)}
-                  title="From State"
-                  className="w-20 bg-slate-950 border border-slate-750 focus:border-cyan-500 rounded px-1.5 py-1 text-slate-200 font-mono outline-none"
-                >
-                  {nfa.states.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-                <span className="text-slate-500">→</span>
-                <select
-                  value={transTo}
-                  onChange={(e) => setTransTo(e.target.value)}
-                  title="To State"
-                  className="w-20 bg-slate-950 border border-slate-750 focus:border-cyan-500 rounded px-1.5 py-1 text-slate-200 font-mono outline-none"
-                >
-                  {nfa.states.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-                <button
-                  onClick={handleAddTransition}
-                  className="flex-1 py-1 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded transition"
-                >
-                  Add
-                </button>
+            <div className="flex flex-col gap-1.5 border-t border-slate-800 pt-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-semibold text-cyan-400">
+                  Add Transition: δ(from, symbol) → to
+                </label>
+                <span className="text-[10px] text-slate-500 font-mono">Multi-destination</span>
               </div>
+              <div className="flex items-center gap-1.5 bg-slate-950 p-2 rounded-lg border border-slate-800/80">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[9px] text-slate-400 font-mono uppercase">From</span>
+                  <select
+                    value={nfa.states.includes(transFrom) ? transFrom : (nfa.states[0] || '')}
+                    onChange={(e) => setTransFrom(e.target.value)}
+                    title="From State"
+                    className="w-16 bg-slate-900 border border-slate-700 focus:border-cyan-500 rounded px-1.5 py-1 text-slate-200 font-mono text-xs outline-none"
+                  >
+                    {nfa.states.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[9px] text-cyan-400 font-mono uppercase">Symbol</span>
+                  <select
+                    value={nfa.alphabet.includes(transSymbol) ? transSymbol : (nfa.alphabet[0] || '')}
+                    onChange={(e) => setTransSymbol(e.target.value)}
+                    title="Symbol"
+                    className="w-16 bg-slate-900 border border-slate-700 focus:border-cyan-500 rounded px-1.5 py-1 text-cyan-300 font-mono font-bold text-xs outline-none"
+                  >
+                    {nfa.alphabet.map((sym) => (
+                      <option key={sym} value={sym}>{sym}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-center pt-3 text-slate-500 font-bold">
+                  →
+                </div>
+
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[9px] text-purple-400 font-mono uppercase">To</span>
+                  <select
+                    value={nfa.states.includes(transTo) ? transTo : (nfa.states[0] || '')}
+                    onChange={(e) => setTransTo(e.target.value)}
+                    title="To State"
+                    className="w-16 bg-slate-900 border border-slate-700 focus:border-cyan-500 rounded px-1.5 py-1 text-purple-200 font-mono text-xs outline-none"
+                  >
+                    {nfa.states.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-0.5 ml-auto self-end">
+                  <button
+                    onClick={handleAddTransition}
+                    className="px-3.5 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 active:scale-95 text-white font-bold rounded transition text-xs shadow-md shadow-cyan-600/30 flex items-center justify-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              {/* Feedback toast message */}
+              {feedback && (
+                <div
+                  className={`mt-1 text-xs px-2.5 py-1 rounded-md border flex items-center justify-between transition-all ${
+                    feedback.type === 'success'
+                      ? 'bg-emerald-950/70 border-emerald-800 text-emerald-300'
+                      : feedback.type === 'error'
+                      ? 'bg-red-950/70 border-red-800 text-red-300'
+                      : 'bg-cyan-950/70 border-cyan-800 text-cyan-300'
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5 font-mono text-[11px]">
+                    {feedback.type === 'success' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
+                    {feedback.type === 'error' && <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />}
+                    {feedback.type === 'info' && <Info className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
+                    <span>{feedback.text}</span>
+                  </span>
+                  <button
+                    onClick={() => setFeedback(null)}
+                    className="text-slate-400 hover:text-white ml-2 text-xs"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Delete Transition */}
@@ -968,3 +1132,4 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({ onLoadAu
     </div>
   );
 };
+
