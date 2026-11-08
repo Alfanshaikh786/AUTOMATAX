@@ -56,19 +56,30 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
   const applyDagreLayout = (force = false) => {
     if (!automaton.states.length) return;
     const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: 'LR', nodesep: 110, ranksep: 140, marginx: 60, marginy: 60 });
+    g.setGraph({
+      rankdir: 'LR',
+      nodesep: 120,
+      ranksep: 175,
+      marginx: 70,
+      marginy: 70,
+    });
     g.setDefaultEdgeLabel(() => ({}));
 
     automaton.states.forEach((s) => {
-      g.setNode(s, { width: 80, height: 80 });
+      g.setNode(s, { width: 85, height: 85 });
     });
 
-    // Add normal edges
+    const isSinkState = (s: string) =>
+      s === '∅' || s.toLowerCase().includes('dead') || s.toLowerCase().includes('trap');
+
+    // Add normal edges with smart weighting
     Object.entries(automaton.transitions).forEach(([src, symMap]) => {
       Object.entries(symMap).forEach(([_, dests]) => {
         dests.forEach((dst) => {
           if (automaton.states.includes(src) && automaton.states.includes(dst)) {
-            g.setEdge(src, dst);
+            if (src === dst) return;
+            const weight = isSinkState(dst) ? 0.05 : 1;
+            g.setEdge(src, dst, { weight, minlen: 1 });
           }
         });
       });
@@ -79,7 +90,8 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
       Object.entries(automaton.epsilon_transitions).forEach(([src, dests]) => {
         dests.forEach((dst) => {
           if (automaton.states.includes(src) && automaton.states.includes(dst)) {
-            g.setEdge(src, dst);
+            if (src === dst) return;
+            g.setEdge(src, dst, { weight: 1, minlen: 1 });
           }
         });
       });
@@ -87,36 +99,78 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
 
     dagre.layout(g);
 
-    const newPositions: Record<string, { x: number; y: number }> = {};
+    const rawPositions: Record<string, { x: number; y: number }> = {};
     automaton.states.forEach((s) => {
       const node = g.node(s);
       if (node) {
-        newPositions[s] = { x: node.x + 80, y: node.y + 80 };
+        rawPositions[s] = { x: node.x, y: node.y };
       } else {
-        newPositions[s] = { x: 150, y: 150 };
+        rawPositions[s] = { x: 100, y: 100 };
       }
     });
 
+    // Dedicated sink/dead state placement below main computation flow
+    const sinkStates = automaton.states.filter(isSinkState);
+    const nonSinkStates = automaton.states.filter((s) => !isSinkState(s));
+
+    if (sinkStates.length > 0 && nonSinkStates.length > 0) {
+      const maxNonSinkY = Math.max(...nonSinkStates.map((s) => rawPositions[s].y));
+      const maxNonSinkX = Math.max(...nonSinkStates.map((s) => rawPositions[s].x));
+      const minNonSinkX = Math.min(...nonSinkStates.map((s) => rawPositions[s].x));
+      sinkStates.forEach((sink, idx) => {
+        rawPositions[sink].y = maxNonSinkY + 120;
+        rawPositions[sink].x = Math.max(rawPositions[sink].x, minNonSinkX + (maxNonSinkX - minNonSinkX) * 0.75 + idx * 100);
+      });
+    }
+
     // Stagger collinear nodes so edges don't cut through intermediate states
-    const xValues = Object.values(newPositions).map((p) => Math.round(p.x / 20) * 20);
+    const xValues = Object.values(rawPositions).map((p) => Math.round(p.x / 20) * 20);
     const uniqueX = new Set(xValues);
     if (uniqueX.size === 1 && automaton.states.length > 2) {
       automaton.states.forEach((s, idx) => {
         if (idx % 2 === 1) {
-          newPositions[s].x += 140;
+          rawPositions[s].x += 140;
         }
       });
     }
 
-    const yValues = Object.values(newPositions).map((p) => Math.round(p.y / 20) * 20);
+    const yValues = Object.values(rawPositions).map((p) => Math.round(p.y / 20) * 20);
     const uniqueY = new Set(yValues);
     if (uniqueY.size === 1 && automaton.states.length > 2) {
       automaton.states.forEach((s, idx) => {
         if (idx % 2 === 1) {
-          newPositions[s].y += 120;
+          rawPositions[s].y += 120;
         }
       });
     }
+
+    // Auto-center graph in SVG container viewport
+    const containerWidth = svgRef.current?.clientWidth || 700;
+    const containerHeight = svgRef.current?.clientHeight || 460;
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    Object.values(rawPositions).forEach((p) => {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    });
+
+    const targetCenterX = containerWidth / 2;
+    const targetCenterY = containerHeight / 2;
+    const currentCenterX = (minX + maxX) / 2;
+    const currentCenterY = (minY + maxY) / 2;
+
+    const shiftX = Math.round(targetCenterX - currentCenterX);
+    const shiftY = Math.round(targetCenterY - currentCenterY);
+
+    const newPositions: Record<string, { x: number; y: number }> = {};
+    automaton.states.forEach((s) => {
+      newPositions[s] = {
+        x: Math.max(70, rawPositions[s].x + shiftX),
+        y: Math.max(70, rawPositions[s].y + shiftY),
+      };
+    });
 
     setPositions(newPositions);
     if (onChange && !readOnly) {
@@ -404,11 +458,11 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
       const vx = sp.x - p1.x;
       const vy = sp.y - p1.y;
       const t = (vx * ux + vy * uy) / dist;
-      if (t > 0.08 && t < 0.92) {
+      if (t > 0.06 && t < 0.94) {
         const perp = vx * nx + vy * ny;
         const absPerp = Math.abs(perp);
-        if (absPerp < 55) {
-          const needed = Math.max(58, 68 - absPerp);
+        if (absPerp < 72) {
+          const needed = Math.max(56, 75 - absPerp);
           if (needed > maxObstacleAvoidance) {
             maxObstacleAvoidance = needed;
             if (absPerp < 8) {
@@ -423,9 +477,21 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
 
     let apexOffset = 0;
     if (maxObstacleAvoidance > 0) {
-      apexOffset = obstacleSide * Math.max(58, maxObstacleAvoidance);
+      apexOffset = obstacleSide * Math.max(56, maxObstacleAvoidance);
     } else if (isReverse) {
       apexOffset = 30;
+    } else if (dist > 190) {
+      // Long skip edge: arch gracefully over intermediate nodes
+      const M_temp = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      const otherY = automaton.states
+        .filter((s) => s !== edge.from && s !== edge.to && positions[s])
+        .map((s) => positions[s].y);
+      const avgOtherY = otherY.length > 0 ? otherY.reduce((a, b) => a + b, 0) / otherY.length : M_temp.y;
+      const archMagnitude = Math.min(50, Math.max(34, dist * 0.11));
+      // ny is ux: if ux > 0, positive apexOffset moves in +Y (downward).
+      // If other nodes are below (avgOtherY >= M_temp.y), arch UP (negative in Y):
+      const side = (avgOtherY >= M_temp.y) ? (ny > 0 ? -1 : 1) : (ny > 0 ? 1 : -1);
+      apexOffset = side * archMagnitude;
     }
 
     const M = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
@@ -667,8 +733,10 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
               const isSelected = selectedState === s;
               const isHighlighted = highlightStates.includes(s);
 
-              let fillColor = '#111827';
-              let strokeColor = isInitial ? '#10b981' : isAccepting ? '#ef4444' : '#475569';
+              const isDeadState = s === '∅' || s.toLowerCase().includes('dead') || s.toLowerCase().includes('trap');
+
+              let fillColor = isDeadState ? '#0b0f19' : '#111827';
+              let strokeColor = isInitial ? '#10b981' : isAccepting ? '#ef4444' : isDeadState ? '#64748b' : '#475569';
               if (isSelected) {
                 strokeColor = '#06b6d4';
                 fillColor = '#164e63';
@@ -703,6 +771,7 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
                     fill={fillColor}
                     stroke={strokeColor}
                     strokeWidth={isSelected || isHighlighted ? 3 : 2}
+                    strokeDasharray={isDeadState ? '4,3' : undefined}
                     className="transition-colors duration-150"
                   />
 
@@ -720,9 +789,9 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
                   <text
                     y="4"
                     textAnchor="middle"
-                    fill="#f8fafc"
+                    fill={isDeadState ? '#94a3b8' : '#f8fafc'}
                     fontSize="13"
-                    fontWeight="600"
+                    fontWeight="700"
                     fontFamily="monospace"
                     pointerEvents="none"
                   >
