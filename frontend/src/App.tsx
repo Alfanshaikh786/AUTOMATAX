@@ -7,21 +7,13 @@ import { StepPlayer } from './components/conversion/StepPlayer';
 import { ConversionLabView } from './components/conversion/ConversionLabView';
 import { SimulationPane } from './components/simulator/SimulationPane';
 import { EquivalenceView } from './components/equivalence/EquivalenceView';
-import { DebuggerView } from './components/debugger/DebuggerView';
-import { WhatIfLab } from './components/whatif/WhatIfLab';
-import { RegexLab } from './components/regex/RegexLab';
-import { GrammarLab } from './components/grammar/GrammarLab';
-import { OperationsLab } from './components/operations/OperationsLab';
-import { ComparisonLab } from './components/comparison/ComparisonLab';
-import { PracticeLab } from './components/practice/PracticeLab';
 import { DualAutomataStudio } from './components/studio/DualAutomataStudio';
 import { AIGeneratorModal } from './components/ai/AIGeneratorModal';
 import { ExportModal } from './components/reports/ExportModal';
 
 import {
-  Layers, Play, CheckCircle2, GitCompare, ShieldAlert, Sparkles,
-  BookMarked, Network, Columns3, GraduationCap, Download, Plus,
-  Save, RotateCcw, HelpCircle, Code2, Cpu, Compass, Workflow, GitFork
+  Layers, Play, CheckCircle2, GitCompare, Download, Plus,
+  Save, RotateCcw, HelpCircle, Cpu, Compass, Workflow, GitFork, Sparkles
 } from 'lucide-react';
 
 const DEFAULT_AUTOMATON: AutomatonModel = {
@@ -117,13 +109,6 @@ export function App() {
     { id: 'conversion', label: 'Conversion Lab', icon: Layers },
     { id: 'simulation', label: 'String Simulator', icon: Play },
     { id: 'equivalence', label: 'Equivalence Checker', icon: GitCompare },
-    { id: 'regex', label: 'Regex Lab', icon: Code2 },
-    { id: 'grammar', label: 'Grammar Lab', icon: BookMarked },
-    { id: 'operations', label: 'Operations Lab', icon: Network },
-    { id: 'debugger', label: 'Diagnostics & Debugger', icon: ShieldAlert },
-    { id: 'whatif', label: 'What-If Lab', icon: Sparkles },
-    { id: 'comparison', label: 'Solution Comparison', icon: Columns3 },
-    { id: 'practice', label: 'Academy & Challenges', icon: GraduationCap },
   ];
 
   return (
@@ -433,63 +418,6 @@ export function App() {
               availableAutomata={availableAutomata}
               currentAutomaton={currentAutomaton}
             />
-          )}
-
-          {activeTab === 'regex' && (
-            <RegexLab
-              currentAutomaton={currentAutomaton}
-              onLoadAutomaton={(aut) => {
-                setCurrentAutomaton(aut);
-                setActiveTab('builder');
-              }}
-            />
-          )}
-
-          {activeTab === 'grammar' && (
-            <GrammarLab
-              currentAutomaton={currentAutomaton}
-              onLoadAutomaton={(aut) => {
-                setCurrentAutomaton(aut);
-                setActiveTab('builder');
-              }}
-            />
-          )}
-
-          {activeTab === 'operations' && (
-            <OperationsLab
-              availableAutomata={availableAutomata}
-              currentAutomaton={currentAutomaton}
-              onLoadAutomaton={(aut) => {
-                setCurrentAutomaton(aut);
-                setActiveTab('builder');
-              }}
-            />
-          )}
-
-          {activeTab === 'debugger' && (
-            <DebuggerView
-              automaton={currentAutomaton}
-              onApplyFix={(updated) => setCurrentAutomaton(updated)}
-            />
-          )}
-
-          {activeTab === 'whatif' && (
-            <WhatIfLab
-              baseAutomaton={currentAutomaton}
-              onSaveAsNew={(newAut) => {
-                setAvailableAutomata([...availableAutomata, newAut]);
-                setCurrentAutomaton(newAut);
-                setActiveTab('builder');
-              }}
-            />
-          )}
-
-          {activeTab === 'comparison' && (
-            <ComparisonLab currentAutomaton={currentAutomaton} />
-          )}
-
-          {activeTab === 'practice' && (
-            <PracticeLab />
           )}
         </div>
       </main>
