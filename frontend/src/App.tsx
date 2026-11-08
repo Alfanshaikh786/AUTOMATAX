@@ -104,8 +104,9 @@ export function App() {
 
   const navItems = [
     { id: 'builder', label: 'Automata Builder', icon: Cpu },
-    { id: 'dual-studio', label: 'Dual NFA Studio', icon: Workflow },
-    { id: 'dual-enfa-studio', label: 'Dual ε-NFA Studio', icon: GitFork },
+    { id: 'dual-studio', label: 'Dual NFA Studio (NFA → DFA)', icon: Workflow },
+    { id: 'dual-enfa-to-nfa', label: 'Dual ε-NFA Studio (ε-NFA → NFA)', icon: Sparkles },
+    { id: 'dual-enfa-studio', label: 'Dual ε-NFA Studio (ε-NFA → DFA)', icon: GitFork },
     { id: 'conversion', label: 'Conversion Lab', icon: Layers },
     { id: 'simulation', label: 'String Simulator', icon: Play },
     { id: 'equivalence', label: 'Equivalence Checker', icon: GitCompare },
@@ -362,10 +363,16 @@ export function App() {
             </div>
           )}
 
-          {(activeTab === 'dual-studio' || activeTab === 'dual-enfa-studio') && (
+          {(activeTab === 'dual-studio' || activeTab === 'dual-enfa-to-nfa' || activeTab === 'dual-enfa-studio') && (
             <DualAutomataStudio
               key={activeTab}
-              initialMode={activeTab === 'dual-enfa-studio' ? 'ENFA' : 'NFA'}
+              initialMode={
+                activeTab === 'dual-enfa-to-nfa'
+                  ? 'ENFA_TO_NFA'
+                  : activeTab === 'dual-enfa-studio'
+                  ? 'ENFA_TO_DFA'
+                  : 'NFA_TO_DFA'
+              }
               onLoadAutomaton={(aut) => {
                 if (!availableAutomata.some((a) => a.id === aut.id)) {
                   setAvailableAutomata((prev) => [...prev, aut]);

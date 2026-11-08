@@ -7,9 +7,11 @@ import {
   Workflow, GitFork
 } from 'lucide-react';
 
+export type StudioMode = 'NFA_TO_DFA' | 'ENFA_TO_NFA' | 'ENFA_TO_DFA';
+
 interface DualAutomataStudioProps {
   onLoadAutomaton: (aut: AutomatonModel) => void;
-  initialMode?: 'NFA' | 'ENFA';
+  initialMode?: 'NFA' | 'ENFA' | 'NFA_TO_DFA' | 'ENFA_TO_NFA' | 'ENFA_TO_DFA';
 }
 
 interface StateMapping {
@@ -227,28 +229,38 @@ function getMove(
   return Array.from(result).sort();
 }
 
+function normalizeMode(mode?: string): StudioMode {
+  if (mode === 'ENFA_TO_NFA') return 'ENFA_TO_NFA';
+  if (mode === 'ENFA' || mode === 'ENFA_TO_DFA') return 'ENFA_TO_DFA';
+  return 'NFA_TO_DFA';
+}
+
 export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
   onLoadAutomaton,
-  initialMode = 'NFA',
+  initialMode = 'NFA_TO_DFA',
 }) => {
-  // Studio Mode: Standard NFA vs ε-NFA
-  const [studioMode, setStudioMode] = useState<'NFA' | 'ENFA'>(initialMode);
+  // Studio Mode: Standard NFA vs ε-NFA → NFA vs ε-NFA → DFA
+  const [studioMode, setStudioMode] = useState<StudioMode>(() => normalizeMode(initialMode));
 
   // Current Automaton model
-  const [nfa, setNfa] = useState<AutomatonModel>(
-    initialMode === 'ENFA'
-      ? PRESET_ENFA_SAMPLES.sample_enfa_textbook.enfa
-      : PRESET_NFA_SAMPLES.sample_abc.nfa
-  );
+  const [nfa, setNfa] = useState<AutomatonModel>(() => {
+    const norm = normalizeMode(initialMode);
+    return norm === 'NFA_TO_DFA'
+      ? PRESET_NFA_SAMPLES.sample_abc.nfa
+      : PRESET_ENFA_SAMPLES.sample_enfa_textbook.enfa;
+  });
 
   // Sync mode if initialMode changes
   useEffect(() => {
-    if (initialMode && initialMode !== studioMode) {
-      setStudioMode(initialMode);
-      if (initialMode === 'ENFA' && nfa.type !== 'ENFA') {
-        setNfa(JSON.parse(JSON.stringify(PRESET_ENFA_SAMPLES.sample_enfa_textbook.enfa)));
-      } else if (initialMode === 'NFA' && nfa.type === 'ENFA') {
-        setNfa(JSON.parse(JSON.stringify(PRESET_NFA_SAMPLES.sample_abc.nfa)));
+    if (initialMode) {
+      const norm = normalizeMode(initialMode);
+      if (norm !== studioMode) {
+        setStudioMode(norm);
+        if (norm === 'NFA_TO_DFA' && nfa.type === 'ENFA') {
+          setNfa(JSON.parse(JSON.stringify(PRESET_NFA_SAMPLES.sample_abc.nfa)));
+        } else if ((norm === 'ENFA_TO_NFA' || norm === 'ENFA_TO_DFA') && nfa.type !== 'ENFA') {
+          setNfa(JSON.parse(JSON.stringify(PRESET_ENFA_SAMPLES.sample_enfa_textbook.enfa)));
+        }
       }
     }
   }, [initialMode]);
@@ -271,7 +283,8 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
   // Complete DFA mode: includes Dead / Trap State '∅' so every state has an exact transition for each symbol
   const [includeDeadState, setIncludeDeadState] = useState<boolean>(true);
 
-  const isEnfa = studioMode === 'ENFA';
+  const isEnfa = studioMode === 'ENFA_TO_NFA' || studioMode === 'ENFA_TO_DFA';
+  const isEnfaToNfa = studioMode === 'ENFA_TO_NFA';
 
   // Allowed symbols in transition dropdown (includes 'ε' in ENFA mode)
   const availableTransitionSymbols = useMemo(() => {
@@ -503,24 +516,149 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
     };
   }, [nfa, isEnfa, includeDeadState]);
 
+  // ε-NFA to standard NFA (Epsilon-Elimination algorithm)
+  const enfaToNfaResult = useMemo(() => {
+    if (!nfa.states.length || !nfa.alphabet.length) {
+      const emptyNfa: AutomatonModel = {
+        id: 'nfa_empty',
+        name: 'Empty NFA',
+        type: 'NFA',
+        states: [],
+        alphabet: nfa.alphabet.filter((s) => s !== 'ε'),
+        initial_state: '',
+        accepting_states: [],
+        transitions: {},
+        epsilon_transitions: {},
+      };
+      return {
+        targetNfa: emptyNfa,
+        targetTransitionsTable: {},
+        targetTransitionList: [],
+        transitionDerivations: [],
+        acceptingDerivations: [],
+      };
+    }
+
+    const targetAlphabet = nfa.alphabet.filter((sym) => sym !== 'ε');
+    const targetStates = [...nfa.states];
+
+    // 1. Closures for every state
+    const closures: Record<string, string[]> = {};
+    nfa.states.forEach((s) => {
+      closures[s] = getEpsilonClosure(s, nfa.states, nfa.epsilon_transitions || {});
+    });
+
+    // 2. Transitions: δ'(q, a) = ε-closure(move(ε-closure(q), a))
+    const targetTransitions: Record<string, Record<string, string[]>> = {};
+    const targetTransitionTable: Record<string, Record<string, string>> = {};
+    const transitionDerivations: Array<{
+      from: string;
+      symbol: string;
+      closureOfFrom: string[];
+      moveSet: string[];
+      closureOfMove: string[];
+      formula: string;
+    }> = [];
+
+    nfa.states.forEach((q) => {
+      targetTransitions[q] = {};
+      targetTransitionTable[q] = {};
+      const cq = closures[q] || [q];
+
+      targetAlphabet.forEach((a) => {
+        const moveSet = getMove(cq, a, nfa.transitions);
+        const destClosure = getSetEpsilonClosure(moveSet, nfa.states, nfa.epsilon_transitions || {});
+        targetTransitions[q][a] = destClosure;
+        targetTransitionTable[q][a] = destClosure.length > 0 ? `{${destClosure.join(', ')}}` : '∅';
+
+        transitionDerivations.push({
+          from: q,
+          symbol: a,
+          closureOfFrom: cq,
+          moveSet,
+          closureOfMove: destClosure,
+          formula: `δ'(${q}, ${a}) = ε-closure(move({${cq.join(', ')}}, ${a})) = ${
+            destClosure.length > 0 ? `{${destClosure.join(', ')}}` : '∅'
+          }`,
+        });
+      });
+    });
+
+    // 3. Updated accepting states F' = { q ∈ Q | ε-closure(q) ∩ F ≠ ∅ }
+    const origAcceptingSet = new Set(nfa.accepting_states);
+    const targetAcceptingStates: string[] = [];
+    const acceptingDerivations: Array<{ state: string; isAccepting: boolean; intersection: string[] }> = [];
+
+    nfa.states.forEach((q) => {
+      const cq = closures[q] || [q];
+      const inter = cq.filter((s) => origAcceptingSet.has(s));
+      const isAcc = inter.length > 0;
+      if (isAcc) {
+        targetAcceptingStates.push(q);
+      }
+      acceptingDerivations.push({
+        state: q,
+        isAccepting: isAcc,
+        intersection: inter,
+      });
+    });
+
+    const targetNfaModel: AutomatonModel = {
+      id: `${nfa.id}_nfa_elim`,
+      name: `${nfa.name} (Epsilon-Free NFA)`,
+      type: 'NFA',
+      states: targetStates,
+      alphabet: targetAlphabet,
+      initial_state: nfa.initial_state,
+      accepting_states: targetAcceptingStates,
+      transitions: targetTransitions,
+      epsilon_transitions: {},
+    };
+
+    const targetTransList: Array<{ from: string; symbol: string; dests: string[] }> = [];
+    targetStates.forEach((s) => {
+      targetAlphabet.forEach((sym) => {
+        const dests = targetTransitions[s]?.[sym] || [];
+        if (dests.length > 0) {
+          targetTransList.push({ from: s, symbol: sym, dests });
+        }
+      });
+    });
+
+    return {
+      targetNfa: targetNfaModel,
+      targetTransitionsTable: targetTransitionTable,
+      targetTransitionList: targetTransList,
+      transitionDerivations,
+      acceptingDerivations,
+    };
+  }, [nfa]);
+
   // Mode Switcher Handler
-  const handleSwitchMode = (mode: 'NFA' | 'ENFA') => {
+  const handleSwitchMode = (mode: StudioMode) => {
     if (mode === studioMode) return;
     setStudioMode(mode);
-    if (mode === 'ENFA') {
-      const preset = JSON.parse(JSON.stringify(PRESET_ENFA_SAMPLES.sample_enfa_textbook.enfa));
-      setNfa(preset);
-      setTransFrom(preset.states[0]);
-      setTransTo(preset.states[0]);
-      setTransSymbol(preset.alphabet[0] || 'ε');
-      setFeedback({ type: 'info', text: 'Switched to ε-NFA Studio with Textbook ε-NFA sample.' });
-    } else {
+    if (mode === 'NFA_TO_DFA') {
       const preset = JSON.parse(JSON.stringify(PRESET_NFA_SAMPLES.sample_abc.nfa));
       setNfa(preset);
       setTransFrom(preset.states[0]);
       setTransTo(preset.states[0]);
       setTransSymbol(preset.alphabet[0] || '0');
-      setFeedback({ type: 'info', text: 'Switched to Standard NFA Studio with 3-State NFA sample.' });
+      setFeedback({ type: 'info', text: 'Switched to Standard NFA → DFA Studio (Subset Construction).' });
+    } else if (mode === 'ENFA_TO_NFA') {
+      const preset = JSON.parse(JSON.stringify(PRESET_ENFA_SAMPLES.sample_enfa_textbook.enfa));
+      setNfa(preset);
+      setTransFrom(preset.states[0]);
+      setTransTo(preset.states[0]);
+      setTransSymbol(preset.alphabet[0] || 'ε');
+      setFeedback({ type: 'info', text: 'Switched to ε-NFA → NFA Studio (Epsilon Elimination).' });
+    } else {
+      const preset = JSON.parse(JSON.stringify(PRESET_ENFA_SAMPLES.sample_enfa_textbook.enfa));
+      setNfa(preset);
+      setTransFrom(preset.states[0]);
+      setTransTo(preset.states[0]);
+      setTransSymbol(preset.alphabet[0] || 'ε');
+      setFeedback({ type: 'info', text: 'Switched to ε-NFA → DFA Studio (Epsilon Subset Construction).' });
     }
   };
 
@@ -884,26 +1022,38 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
         <div className="flex items-center gap-3">
           <div
             className={`w-10 h-10 rounded-xl bg-gradient-to-tr ${
-              isEnfa ? 'from-purple-600 to-indigo-600 shadow-purple-600/20' : 'from-cyan-600 to-blue-600 shadow-cyan-600/20'
+              isEnfaToNfa
+                ? 'from-indigo-600 to-purple-600 shadow-indigo-600/20'
+                : isEnfa
+                ? 'from-purple-600 to-indigo-600 shadow-purple-600/20'
+                : 'from-cyan-600 to-blue-600 shadow-cyan-600/20'
             } flex items-center justify-center text-white shadow-lg`}
           >
-            {isEnfa ? <GitFork className="w-5 h-5" /> : <Layers className="w-5 h-5" />}
+            {isEnfaToNfa ? <Sparkles className="w-5 h-5" /> : isEnfa ? <GitFork className="w-5 h-5" /> : <Layers className="w-5 h-5" />}
           </div>
           <div>
             <h2 className="text-base font-bold text-white flex items-center gap-2">
-              {isEnfa ? 'Dual ε-NFA ➔ DFA Studio' : 'Dual NFA ➔ DFA Studio'}
+              {isEnfaToNfa
+                ? 'Dual ε-NFA ➔ NFA Studio'
+                : isEnfa
+                ? 'Dual ε-NFA ➔ DFA Studio'
+                : 'Dual NFA ➔ DFA Studio'}
               <span
                 className={`px-2 py-0.5 border rounded font-mono text-[10px] ${
-                  isEnfa
+                  isEnfaToNfa
+                    ? 'bg-indigo-950 border-indigo-800 text-indigo-300'
+                    : isEnfa
                     ? 'bg-purple-950 border-purple-800 text-purple-300'
                     : 'bg-cyan-950 border-cyan-800 text-cyan-300'
                 }`}
               >
-                {isEnfa ? 'EPSILON CLOSURE ENGINE' : 'LIVE REACTIVE ENGINE'}
+                {isEnfaToNfa ? 'EPSILON ELIMINATION ENGINE' : isEnfa ? 'EPSILON CLOSURE ENGINE' : 'LIVE REACTIVE ENGINE'}
               </span>
             </h2>
             <p className="text-xs text-slate-400">
-              {isEnfa
+              {isEnfaToNfa
+                ? "Define any ε-NFA with spontaneous transitions. Watch the ε-elimination algorithm δ'(q, a) = ε-closure(move(ε-closure(q), a)), updated final states, tables, and graphs generate in real time."
+                : isEnfa
                 ? 'Define any ε-NFA with spontaneous ε-transitions. Watch the ε-closures, subset construction, 5-tuples, and graphs generate in real time.'
                 : 'Define any NFA using the input controls. Watch the mathematical 5-tuples, transition tables, subset mappings, and graphs generate simultaneously in real time.'}
             </p>
@@ -915,26 +1065,37 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
           {/* Mode Switcher Tabs */}
           <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
             <button
-              onClick={() => handleSwitchMode('NFA')}
+              onClick={() => handleSwitchMode('NFA_TO_DFA')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                studioMode === 'NFA'
+                studioMode === 'NFA_TO_DFA'
                   ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
               <Workflow className="w-3.5 h-3.5" />
-              Standard NFA
+              NFA → DFA
             </button>
             <button
-              onClick={() => handleSwitchMode('ENFA')}
+              onClick={() => handleSwitchMode('ENFA_TO_NFA')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                studioMode === 'ENFA'
+                studioMode === 'ENFA_TO_NFA'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              ε-NFA → NFA
+            </button>
+            <button
+              onClick={() => handleSwitchMode('ENFA_TO_DFA')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                studioMode === 'ENFA_TO_DFA'
                   ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
               <GitFork className="w-3.5 h-3.5" />
-              ε-NFA Studio
+              ε-NFA → DFA
             </button>
           </div>
 
@@ -961,11 +1122,13 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
           </div>
 
           <button
-            onClick={() => onLoadAutomaton(dfa)}
-            className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow"
+            onClick={() => onLoadAutomaton(isEnfaToNfa ? enfaToNfaResult.targetNfa : dfa)}
+            className={`px-3 py-1.5 ${
+              isEnfaToNfa ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-cyan-600 hover:bg-cyan-500'
+            } text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow`}
           >
             <ExternalLink className="w-3.5 h-3.5" />
-            Load DFA into Builder
+            Load {isEnfaToNfa ? 'Converted NFA' : 'DFA'} into Builder
           </button>
 
           <button
@@ -1385,42 +1548,80 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
             </div>
           )}
 
-          {/* DFA Formal Definition */}
-          <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-2.5 shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <h3 className="font-bold text-white text-sm">
-                DFA Formal Definition (Equivalence)
-              </h3>
-              <span className="text-[10px] text-cyan-400 font-mono">
-                {includeDeadState ? 'Total Function δ: Q × Σ → Q' : 'δ : Q × Σ → Q'}
-              </span>
-            </div>
-            <div className="font-mono text-xs text-slate-200 space-y-1 bg-slate-950/80 p-3 rounded-xl border border-slate-800">
-              <p><span className="text-cyan-400 font-bold">Q</span> = {'{' + dfa.states.join(', ') + '}'}</p>
-              <p><span className="text-cyan-400 font-bold">Σ</span> = {'{' + dfa.alphabet.join(', ') + '}'}</p>
-              <p><span className="text-cyan-400 font-bold">q₀</span> = {dfa.initial_state || '∅'}</p>
-              <p><span className="text-cyan-400 font-bold">F</span> = {'{' + dfa.accepting_states.join(', ') + '}'}</p>
-              <p className="text-cyan-400 font-bold mt-1">
-                {includeDeadState ? 'δ : Q × Σ → Q (Total Function)' : 'δ : Q × Σ → Q'}
-              </p>
-              <div className="max-h-36 overflow-y-auto pl-3 space-y-0.5 text-slate-300 border-l border-slate-800 mt-1">
-                {dfaTransitionList.length > 0 ? (
-                  dfaTransitionList.map((t, idx) => (
-                    <p key={idx} className={t.dest === '∅' || t.from === '∅' ? 'text-amber-300' : ''}>
-                      δ({t.from}, {t.symbol}) = {t.dest}
-                    </p>
-                  ))
-                ) : (
-                  <p className="text-slate-600">No transitions computed</p>
-                )}
+          {/* Converted Formal Definition (NFA in ENFA_TO_NFA mode, DFA otherwise) */}
+          {isEnfaToNfa ? (
+            <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-2.5 shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <h3 className="font-bold text-white text-sm">
+                  NFA Formal Definition (Epsilon-Free)
+                </h3>
+                <span className="text-[10px] text-indigo-400 font-mono">
+                  δ' : Q × Σ → 𝒫(Q)
+                </span>
+              </div>
+              <div className="font-mono text-xs text-slate-200 space-y-1 bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                <p><span className="text-cyan-400 font-bold">Q</span> = {'{' + enfaToNfaResult.targetNfa.states.join(', ') + '}'}</p>
+                <p><span className="text-cyan-400 font-bold">Σ</span> = {'{' + enfaToNfaResult.targetNfa.alphabet.join(', ') + '}'}</p>
+                <p><span className="text-cyan-400 font-bold">q₀</span> = {enfaToNfaResult.targetNfa.initial_state || '∅'}</p>
+                <p><span className="text-cyan-400 font-bold">F'</span> = {'{' + enfaToNfaResult.targetNfa.accepting_states.join(', ') + '}'}</p>
+                <p className="text-indigo-400 font-bold mt-1">
+                  δ' : Q × Σ → 𝒫(Q) [ε-Eliminated Transitions]
+                </p>
+                <div className="max-h-36 overflow-y-auto pl-3 space-y-0.5 text-slate-300 border-l border-slate-800 mt-1">
+                  {enfaToNfaResult.targetTransitionList.length > 0 ? (
+                    enfaToNfaResult.targetTransitionList.map((t, idx) => (
+                      <p key={idx} className="text-indigo-300">
+                        δ'({t.from}, {t.symbol}) = {'{' + t.dests.join(', ') + '}'}
+                      </p>
+                    ))
+                  ) : (
+                    <p className="text-slate-600">No transitions computed</p>
+                  )}
+                </div>
+              </div>
+              <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between">
+                <span>States: {enfaToNfaResult.targetNfa.states.length}</span>
+                <span>Final States: {enfaToNfaResult.targetNfa.accepting_states.length}</span>
+                <span>Transitions: {enfaToNfaResult.targetTransitionList.length}</span>
               </div>
             </div>
-            <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between">
-              <span>States: {dfa.states.length}</span>
-              <span>Final States: {dfa.accepting_states.length}</span>
-              <span>Transitions: {dfaTransitionList.length}</span>
+          ) : (
+            <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-2.5 shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <h3 className="font-bold text-white text-sm">
+                  DFA Formal Definition (Equivalence)
+                </h3>
+                <span className="text-[10px] text-cyan-400 font-mono">
+                  {includeDeadState ? 'Total Function δ: Q × Σ → Q' : 'δ : Q × Σ → Q'}
+                </span>
+              </div>
+              <div className="font-mono text-xs text-slate-200 space-y-1 bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                <p><span className="text-cyan-400 font-bold">Q</span> = {'{' + dfa.states.join(', ') + '}'}</p>
+                <p><span className="text-cyan-400 font-bold">Σ</span> = {'{' + dfa.alphabet.join(', ') + '}'}</p>
+                <p><span className="text-cyan-400 font-bold">q₀</span> = {dfa.initial_state || '∅'}</p>
+                <p><span className="text-cyan-400 font-bold">F</span> = {'{' + dfa.accepting_states.join(', ') + '}'}</p>
+                <p className="text-cyan-400 font-bold mt-1">
+                  {includeDeadState ? 'δ : Q × Σ → Q (Total Function)' : 'δ : Q × Σ → Q'}
+                </p>
+                <div className="max-h-36 overflow-y-auto pl-3 space-y-0.5 text-slate-300 border-l border-slate-800 mt-1">
+                  {dfaTransitionList.length > 0 ? (
+                    dfaTransitionList.map((t, idx) => (
+                      <p key={idx} className={t.dest === '∅' || t.from === '∅' ? 'text-amber-300' : ''}>
+                        δ({t.from}, {t.symbol}) = {t.dest}
+                      </p>
+                    ))
+                  ) : (
+                    <p className="text-slate-600">No transitions computed</p>
+                  )}
+                </div>
+              </div>
+              <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between">
+                <span>States: {dfa.states.length}</span>
+                <span>Final States: {dfa.accepting_states.length}</span>
+                <span>Transitions: {dfaTransitionList.length}</span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* COLUMN 3: TRANSITION TABLES & STATE MAPPING */}
@@ -1484,107 +1685,203 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
             </div>
           </div>
 
-          {/* DFA Transition Table */}
-          <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-2 shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2 flex-wrap gap-2">
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-white text-sm">DFA Transition Table</h3>
-                <span className="text-[10px] text-slate-400 font-mono">→: Start, *: Final</span>
-              </div>
-              <label className="flex items-center gap-1.5 cursor-pointer bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800 text-[11px] hover:border-slate-700 transition">
-                <input
-                  type="checkbox"
-                  checked={includeDeadState}
-                  onChange={(e) => setIncludeDeadState(e.target.checked)}
-                  className="rounded bg-slate-900 border-slate-700 text-cyan-500 focus:ring-0 w-3.5 h-3.5 cursor-pointer"
-                />
-                <span className="font-semibold text-cyan-400">Complete DFA (Dead State ∅)</span>
-              </label>
-            </div>
-            <div className="overflow-x-auto border border-slate-800 rounded-xl bg-slate-950/80">
-              <table className="w-full text-left text-xs font-mono">
-                <thead className="bg-slate-900 border-b border-slate-800 text-slate-400">
-                  <tr>
-                    <th className="py-2 px-3">δ</th>
-                    {dfa.alphabet.map((sym) => (
-                      <th key={sym} className="py-2 px-3 text-cyan-300 font-bold text-center">
-                        {sym}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60">
-                  {stateMappings.map((m) => (
-                    <tr
-                      key={m.dfaName}
-                      className={`hover:bg-slate-900/50 transition ${
-                        m.dfaName === '∅' ? 'bg-amber-950/20 border-t border-amber-900/30' : ''
-                      }`}
-                    >
-                      <td className="py-2 px-3 font-bold text-white">
-                        {m.isInitial && <span className="text-emerald-400 mr-0.5">→</span>}
-                        {m.isFinal && <span className="text-red-400 mr-0.5">*</span>}
-                        <span className={m.dfaName === '∅' ? 'text-amber-300 font-bold' : ''}>
-                          {m.dfaName}
-                        </span>{' '}
-                        <span className="text-slate-400 font-normal text-[11px] font-sans">
-                          ({m.subset.length > 0 ? m.subset.join(', ') : 'Dead State'})
-                        </span>
-                      </td>
-                      {dfa.alphabet.map((sym) => {
-                        const target = dfaTransitionsTable[m.dfaName]?.[sym] || '∅';
+          {/* Converted Transition Table (NFA in ENFA_TO_NFA mode, DFA otherwise) */}
+          {isEnfaToNfa ? (
+            <>
+              <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-2 shadow-xl">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2 flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-white text-sm">NFA Transition Table (Epsilon-Free)</h3>
+                    <span className="text-[10px] text-slate-400 font-mono">→: Start, *: Final</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-indigo-300 bg-indigo-950/60 border border-indigo-800/80 px-2 py-0.5 rounded">
+                    Epsilon Removed
+                  </span>
+                </div>
+                <div className="overflow-x-auto border border-slate-800 rounded-xl bg-slate-950/80">
+                  <table className="w-full text-left text-xs font-mono">
+                    <thead className="bg-slate-900 border-b border-slate-800 text-slate-400">
+                      <tr>
+                        <th className="py-2 px-3">δ'</th>
+                        {enfaToNfaResult.targetNfa.alphabet.map((sym) => (
+                          <th key={sym} className="py-2 px-3 text-cyan-300 font-bold text-center">
+                            {sym}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {enfaToNfaResult.targetNfa.states.map((s) => {
+                        const isInit = s === enfaToNfaResult.targetNfa.initial_state;
+                        const isFinal = enfaToNfaResult.targetNfa.accepting_states.includes(s);
                         return (
-                          <td
-                            key={sym}
-                            className={`py-2 px-3 text-center font-bold ${
-                              target === '∅' ? 'text-amber-400/90' : 'text-cyan-300'
-                            }`}
-                          >
-                            {target}
-                          </td>
+                          <tr key={s} className="hover:bg-slate-900/50 transition">
+                            <td className="py-2 px-3 font-bold text-white">
+                              {isInit && <span className="text-emerald-400 mr-0.5">→</span>}
+                              {isFinal && <span className="text-red-400 mr-0.5">*</span>}
+                              <span>{s}</span>
+                            </td>
+                            {enfaToNfaResult.targetNfa.alphabet.map((sym) => {
+                              const dests = enfaToNfaResult.targetNfa.transitions[s]?.[sym] || [];
+                              return (
+                                <td
+                                  key={sym}
+                                  className={`py-2 px-3 text-center font-bold ${
+                                    dests.length === 0 ? 'text-amber-400/90' : 'text-indigo-300'
+                                  }`}
+                                >
+                                  {dests.length > 0 ? `{${dests.join(', ')}}` : '∅'}
+                                </td>
+                              );
+                            })}
+                          </tr>
                         );
                       })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* State Mapping Breakdown */}
-          <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-2 shadow-xl">
-            <h3 className="font-bold text-white text-sm border-b border-slate-800 pb-1.5 flex items-center justify-between">
-              <span>State Mapping</span>
-              <span className="text-[10px] font-mono text-cyan-400">{stateMappings.length} DFA Subsets</span>
-            </h3>
-            <div className="font-mono text-xs space-y-1 max-h-44 overflow-y-auto pr-1">
-              {stateMappings.map((m) => (
-                <div key={m.dfaName} className="flex items-center gap-2 text-slate-300 py-0.5">
-                  <span className={`font-bold ${m.dfaName === '∅' ? 'text-amber-400' : 'text-cyan-400'}`}>
-                    • {m.dfaName}
-                  </span>
-                  <span className="text-slate-500">=</span>
-                  <span className={`font-bold ${m.dfaName === '∅' ? 'text-amber-300' : 'text-purple-300'}`}>
-                    {m.subsetLabel}
-                  </span>
-                  {m.closureFormula && (
-                    <span className="text-[10px] text-slate-500 italic hidden sm:inline">
-                      ({m.closureFormula})
-                    </span>
-                  )}
-                  {m.isFinal ? (
-                    <span className="text-[10px] font-sans px-1.5 py-0.2 bg-red-950/60 border border-red-800 text-red-300 rounded ml-auto">
-                      Final
-                    </span>
-                  ) : m.dfaName === '∅' ? (
-                    <span className="text-[10px] font-sans px-1.5 py-0.2 bg-amber-950/60 border border-amber-800 text-amber-300 rounded ml-auto">
-                      Trap State
-                    </span>
-                  ) : null}
+                    </tbody>
+                  </table>
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
+
+              {/* Epsilon Elimination Step-by-Step Derivations */}
+              <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-2 shadow-xl">
+                <h3 className="font-bold text-white text-sm border-b border-slate-800 pb-1.5 flex items-center justify-between">
+                  <span>Epsilon Elimination Derivations</span>
+                  <span className="text-[10px] font-mono text-indigo-400">
+                    δ'(q, a) = ε-closure(move(ε-closure(q), a))
+                  </span>
+                </h3>
+                <div className="font-mono text-xs space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {enfaToNfaResult.transitionDerivations.map((d, idx) => (
+                    <div key={idx} className="text-slate-300 py-1 border-b border-slate-800/50">
+                      <div className="flex items-center gap-1.5 text-indigo-300 font-bold">
+                        <span>• δ'({d.from}, {d.symbol})</span>
+                        <span className="text-slate-500">=</span>
+                        <span className={d.closureOfMove.length > 0 ? 'text-cyan-300' : 'text-amber-400'}>
+                          {d.closureOfMove.length > 0 ? `{${d.closureOfMove.join(', ')}}` : '∅'}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-sans pl-2.5">
+                        move({'{' + d.closureOfFrom.join(', ') + '}'}, {d.symbol}) = {'{' + (d.moveSet.length > 0 ? d.moveSet.join(', ') : '∅') + '}'} → ε-closure = {'{' + (d.closureOfMove.length > 0 ? d.closureOfMove.join(', ') : '∅') + '}'}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="pt-2 text-slate-300">
+                    <span className="text-amber-400 font-bold text-[11px]">Updated Accepting States F':</span>
+                    {enfaToNfaResult.acceptingDerivations.map((ad) => (
+                      <div key={ad.state} className="text-[10px] pl-2 py-0.5 text-slate-400">
+                        • {ad.state}: ε-closure({ad.state}) ∩ F = {ad.intersection.length > 0 ? `{${ad.intersection.join(', ')}}` : '∅'}{' '}
+                        {ad.isAccepting ? <span className="text-emerald-400 font-bold">→ Final State</span> : <span className="text-slate-500">→ Non-final</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* DFA Transition Table */}
+              <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-2 shadow-xl">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2 flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-white text-sm">DFA Transition Table</h3>
+                    <span className="text-[10px] text-slate-400 font-mono">→: Start, *: Final</span>
+                  </div>
+                  <label className="flex items-center gap-1.5 cursor-pointer bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800 text-[11px] hover:border-slate-700 transition">
+                    <input
+                      type="checkbox"
+                      checked={includeDeadState}
+                      onChange={(e) => setIncludeDeadState(e.target.checked)}
+                      className="rounded bg-slate-900 border-slate-700 text-cyan-500 focus:ring-0 w-3.5 h-3.5 cursor-pointer"
+                    />
+                    <span className="font-semibold text-cyan-400">Complete DFA (Dead State ∅)</span>
+                  </label>
+                </div>
+                <div className="overflow-x-auto border border-slate-800 rounded-xl bg-slate-950/80">
+                  <table className="w-full text-left text-xs font-mono">
+                    <thead className="bg-slate-900 border-b border-slate-800 text-slate-400">
+                      <tr>
+                        <th className="py-2 px-3">δ</th>
+                        {dfa.alphabet.map((sym) => (
+                          <th key={sym} className="py-2 px-3 text-cyan-300 font-bold text-center">
+                            {sym}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {stateMappings.map((m) => (
+                        <tr
+                          key={m.dfaName}
+                          className={`hover:bg-slate-900/50 transition ${
+                            m.dfaName === '∅' ? 'bg-amber-950/20 border-t border-amber-900/30' : ''
+                          }`}
+                        >
+                          <td className="py-2 px-3 font-bold text-white">
+                            {m.isInitial && <span className="text-emerald-400 mr-0.5">→</span>}
+                            {m.isFinal && <span className="text-red-400 mr-0.5">*</span>}
+                            <span className={m.dfaName === '∅' ? 'text-amber-300 font-bold' : ''}>
+                              {m.dfaName}
+                            </span>{' '}
+                            <span className="text-slate-400 font-normal text-[11px] font-sans">
+                              ({m.subset.length > 0 ? m.subset.join(', ') : 'Dead State'})
+                            </span>
+                          </td>
+                          {dfa.alphabet.map((sym) => {
+                            const target = dfaTransitionsTable[m.dfaName]?.[sym] || '∅';
+                            return (
+                              <td
+                                key={sym}
+                                className={`py-2 px-3 text-center font-bold ${
+                                  target === '∅' ? 'text-amber-400/90' : 'text-cyan-300'
+                                }`}
+                              >
+                                {target}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* State Mapping Breakdown */}
+              <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-2 shadow-xl">
+                <h3 className="font-bold text-white text-sm border-b border-slate-800 pb-1.5 flex items-center justify-between">
+                  <span>State Mapping</span>
+                  <span className="text-[10px] font-mono text-cyan-400">{stateMappings.length} DFA Subsets</span>
+                </h3>
+                <div className="font-mono text-xs space-y-1 max-h-44 overflow-y-auto pr-1">
+                  {stateMappings.map((m) => (
+                    <div key={m.dfaName} className="flex items-center gap-2 text-slate-300 py-0.5">
+                      <span className={`font-bold ${m.dfaName === '∅' ? 'text-amber-400' : 'text-cyan-400'}`}>
+                        • {m.dfaName}
+                      </span>
+                      <span className="text-slate-500">=</span>
+                      <span className={`font-bold ${m.dfaName === '∅' ? 'text-amber-300' : 'text-purple-300'}`}>
+                        {m.subsetLabel}
+                      </span>
+                      {m.closureFormula && (
+                        <span className="text-[10px] text-slate-500 italic hidden sm:inline">
+                          ({m.closureFormula})
+                        </span>
+                      )}
+                      {m.isFinal ? (
+                        <span className="text-[10px] font-sans px-1.5 py-0.2 bg-red-950/60 border border-red-800 text-red-300 rounded ml-auto">
+                          Final
+                        </span>
+                      ) : m.dfaName === '∅' ? (
+                        <span className="text-[10px] font-sans px-1.5 py-0.2 bg-amber-950/60 border border-amber-800 text-amber-300 rounded ml-auto">
+                          Trap State
+                        </span>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -1615,20 +1912,30 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
           </div>
         </div>
 
-        {/* DFA Graph */}
+        {/* Converted Target Graph (NFA or DFA) */}
         <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-2 shadow-2xl">
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
             <h3 className="font-bold text-white text-sm flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-              DFA Graph ({includeDeadState ? 'Complete Total Automaton' : 'Equivalent DFA'})
+              <span className={`w-2.5 h-2.5 rounded-full ${isEnfaToNfa ? 'bg-indigo-500' : 'bg-emerald-500'}`} />
+              {isEnfaToNfa
+                ? 'NFA Graph (Equivalent Epsilon-Free Automaton)'
+                : `DFA Graph (${includeDeadState ? 'Complete Total Automaton' : 'Equivalent DFA'})`}
             </h3>
-            <span className="text-xs font-mono text-emerald-300 bg-emerald-950/60 border border-emerald-800/80 px-2 py-0.5 rounded">
-              {dfa.states.length} subset states · {dfaTransitionList.length} transitions
+            <span
+              className={`text-xs font-mono px-2 py-0.5 rounded border ${
+                isEnfaToNfa
+                  ? 'text-indigo-300 bg-indigo-950/60 border-indigo-800/80'
+                  : 'text-emerald-300 bg-emerald-950/60 border-emerald-800/80'
+              }`}
+            >
+              {isEnfaToNfa
+                ? `${enfaToNfaResult.targetNfa.states.length} states · ${enfaToNfaResult.targetTransitionList.length} transitions`
+                : `${dfa.states.length} subset states · ${dfaTransitionList.length} transitions`}
             </span>
           </div>
           <div className="h-[460px] w-full rounded-xl overflow-hidden border border-slate-800 bg-slate-950">
             <AutomataCanvas
-              automaton={dfa}
+              automaton={isEnfaToNfa ? enfaToNfaResult.targetNfa : dfa}
               readOnly={true}
             />
           </div>
