@@ -268,6 +268,9 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
   const [selectedDeleteTrans, setSelectedDeleteTrans] = useState<string>('');
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
+  // Complete DFA mode: includes Dead / Trap State '∅' so every state has an exact transition for each symbol
+  const [includeDeadState, setIncludeDeadState] = useState<boolean>(true);
+
   const isEnfa = studioMode === 'ENFA';
 
   // Allowed symbols in transition dropdown (includes 'ε' in ENFA mode)
@@ -390,6 +393,9 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
     // DFA alphabet strictly excludes ε
     const dfaAlphabet = nfa.alphabet.filter((sym) => sym !== 'ε');
 
+    let deadStateNeeded = false;
+    const DEAD_STATE_NAME = '∅';
+
     while (queue.length > 0) {
       const currSubset = queue.shift()!;
       const currKey = currSubset.join(',');
@@ -400,20 +406,19 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
 
       for (const sym of dfaAlphabet) {
         const moveSet = getMove(currSubset, sym, nfa.transitions);
-        if (moveSet.length === 0) {
-          // Dead / trap state or empty
-          dfaTrans[currDfaName][sym] = [];
-          dfaTable[currDfaName][sym] = '∅';
-          continue;
-        }
-
         const nextSubset = isEnfa
           ? getSetEpsilonClosure(moveSet, nfa.states, nfa.epsilon_transitions || {})
           : moveSet;
 
         if (nextSubset.length === 0) {
-          dfaTrans[currDfaName][sym] = [];
-          dfaTable[currDfaName][sym] = '∅';
+          if (includeDeadState) {
+            deadStateNeeded = true;
+            dfaTrans[currDfaName][sym] = [DEAD_STATE_NAME];
+            dfaTable[currDfaName][sym] = DEAD_STATE_NAME;
+          } else {
+            dfaTrans[currDfaName][sym] = [];
+            dfaTable[currDfaName][sym] = '∅';
+          }
         } else {
           const nextKey = nextSubset.join(',');
           let nextDfaName = subsetMap.get(nextKey);
@@ -442,6 +447,25 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
           dfaTable[currDfaName][sym] = nextDfaName;
         }
       }
+    }
+
+    // Append Dead / Trap State if needed in Complete DFA mode
+    if (includeDeadState && deadStateNeeded) {
+      dfaTrans[DEAD_STATE_NAME] = {};
+      dfaTable[DEAD_STATE_NAME] = {};
+      dfaAlphabet.forEach((sym) => {
+        dfaTrans[DEAD_STATE_NAME][sym] = [DEAD_STATE_NAME];
+        dfaTable[DEAD_STATE_NAME][sym] = DEAD_STATE_NAME;
+      });
+
+      stateMappingsList.push({
+        dfaName: DEAD_STATE_NAME,
+        subset: [],
+        subsetLabel: '∅',
+        isInitial: false,
+        isFinal: false,
+        closureFormula: 'Dead / Trap State (Total Function)',
+      });
     }
 
     const dfaStates = stateMappingsList.map((m) => m.dfaName);
@@ -477,7 +501,7 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
       nfaTransitionList: nfaTransList,
       dfaTransitionList: dfaTransList,
     };
-  }, [nfa, isEnfa]);
+  }, [nfa, isEnfa, includeDeadState]);
 
   // Mode Switcher Handler
   const handleSwitchMode = (mode: 'NFA' | 'ENFA') => {
@@ -1368,7 +1392,7 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
                 DFA Formal Definition (Equivalence)
               </h3>
               <span className="text-[10px] text-cyan-400 font-mono">
-                δ : Q × Σ → Q
+                {includeDeadState ? 'Total Function δ: Q × Σ → Q' : 'δ : Q × Σ → Q'}
               </span>
             </div>
             <div className="font-mono text-xs text-slate-200 space-y-1 bg-slate-950/80 p-3 rounded-xl border border-slate-800">
@@ -1376,11 +1400,13 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
               <p><span className="text-cyan-400 font-bold">Σ</span> = {'{' + dfa.alphabet.join(', ') + '}'}</p>
               <p><span className="text-cyan-400 font-bold">q₀</span> = {dfa.initial_state || '∅'}</p>
               <p><span className="text-cyan-400 font-bold">F</span> = {'{' + dfa.accepting_states.join(', ') + '}'}</p>
-              <p className="text-cyan-400 font-bold mt-1">δ : Q × Σ → Q</p>
+              <p className="text-cyan-400 font-bold mt-1">
+                {includeDeadState ? 'δ : Q × Σ → Q (Total Function)' : 'δ : Q × Σ → Q'}
+              </p>
               <div className="max-h-36 overflow-y-auto pl-3 space-y-0.5 text-slate-300 border-l border-slate-800 mt-1">
                 {dfaTransitionList.length > 0 ? (
                   dfaTransitionList.map((t, idx) => (
-                    <p key={idx}>
+                    <p key={idx} className={t.dest === '∅' || t.from === '∅' ? 'text-amber-300' : ''}>
                       δ({t.from}, {t.symbol}) = {t.dest}
                     </p>
                   ))
@@ -1460,9 +1486,20 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
 
           {/* DFA Transition Table */}
           <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-2 shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <h3 className="font-bold text-white text-sm">DFA Transition Table</h3>
-              <span className="text-[10px] text-slate-400 font-mono">→: Start, *: Final</span>
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2 flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-white text-sm">DFA Transition Table</h3>
+                <span className="text-[10px] text-slate-400 font-mono">→: Start, *: Final</span>
+              </div>
+              <label className="flex items-center gap-1.5 cursor-pointer bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800 text-[11px] hover:border-slate-700 transition">
+                <input
+                  type="checkbox"
+                  checked={includeDeadState}
+                  onChange={(e) => setIncludeDeadState(e.target.checked)}
+                  className="rounded bg-slate-900 border-slate-700 text-cyan-500 focus:ring-0 w-3.5 h-3.5 cursor-pointer"
+                />
+                <span className="font-semibold text-cyan-400">Complete DFA (Dead State ∅)</span>
+              </label>
             </div>
             <div className="overflow-x-auto border border-slate-800 rounded-xl bg-slate-950/80">
               <table className="w-full text-left text-xs font-mono">
@@ -1478,19 +1515,31 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
                   {stateMappings.map((m) => (
-                    <tr key={m.dfaName} className="hover:bg-slate-900/50 transition">
+                    <tr
+                      key={m.dfaName}
+                      className={`hover:bg-slate-900/50 transition ${
+                        m.dfaName === '∅' ? 'bg-amber-950/20 border-t border-amber-900/30' : ''
+                      }`}
+                    >
                       <td className="py-2 px-3 font-bold text-white">
                         {m.isInitial && <span className="text-emerald-400 mr-0.5">→</span>}
                         {m.isFinal && <span className="text-red-400 mr-0.5">*</span>}
-                        <span>{m.dfaName}</span>{' '}
+                        <span className={m.dfaName === '∅' ? 'text-amber-300 font-bold' : ''}>
+                          {m.dfaName}
+                        </span>{' '}
                         <span className="text-slate-400 font-normal text-[11px] font-sans">
-                          ({m.subset.join(', ')})
+                          ({m.subset.length > 0 ? m.subset.join(', ') : 'Dead State'})
                         </span>
                       </td>
                       {dfa.alphabet.map((sym) => {
                         const target = dfaTransitionsTable[m.dfaName]?.[sym] || '∅';
                         return (
-                          <td key={sym} className="py-2 px-3 text-center text-cyan-300 font-bold">
+                          <td
+                            key={sym}
+                            className={`py-2 px-3 text-center font-bold ${
+                              target === '∅' ? 'text-amber-400/90' : 'text-cyan-300'
+                            }`}
+                          >
                             {target}
                           </td>
                         );
@@ -1511,19 +1560,27 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
             <div className="font-mono text-xs space-y-1 max-h-44 overflow-y-auto pr-1">
               {stateMappings.map((m) => (
                 <div key={m.dfaName} className="flex items-center gap-2 text-slate-300 py-0.5">
-                  <span className="text-cyan-400 font-bold">• {m.dfaName}</span>
+                  <span className={`font-bold ${m.dfaName === '∅' ? 'text-amber-400' : 'text-cyan-400'}`}>
+                    • {m.dfaName}
+                  </span>
                   <span className="text-slate-500">=</span>
-                  <span className="text-purple-300 font-bold">{m.subsetLabel}</span>
+                  <span className={`font-bold ${m.dfaName === '∅' ? 'text-amber-300' : 'text-purple-300'}`}>
+                    {m.subsetLabel}
+                  </span>
                   {m.closureFormula && (
                     <span className="text-[10px] text-slate-500 italic hidden sm:inline">
                       ({m.closureFormula})
                     </span>
                   )}
-                  {m.isFinal && (
+                  {m.isFinal ? (
                     <span className="text-[10px] font-sans px-1.5 py-0.2 bg-red-950/60 border border-red-800 text-red-300 rounded ml-auto">
                       Final
                     </span>
-                  )}
+                  ) : m.dfaName === '∅' ? (
+                    <span className="text-[10px] font-sans px-1.5 py-0.2 bg-amber-950/60 border border-amber-800 text-amber-300 rounded ml-auto">
+                      Trap State
+                    </span>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -1563,7 +1620,7 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
             <h3 className="font-bold text-white text-sm flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-              DFA Graph (Equivalent Deterministic Automaton)
+              DFA Graph ({includeDeadState ? 'Complete Total Automaton' : 'Equivalent DFA'})
             </h3>
             <span className="text-xs font-mono text-emerald-300 bg-emerald-950/60 border border-emerald-800/80 px-2 py-0.5 rounded">
               {dfa.states.length} subset states · {dfaTransitionList.length} transitions
