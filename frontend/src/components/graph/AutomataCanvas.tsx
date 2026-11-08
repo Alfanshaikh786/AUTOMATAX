@@ -573,7 +573,7 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
             const isHighlighted = highlightStates.includes(s);
 
             let fillColor = '#111827';
-            let strokeColor = '#475569';
+            let strokeColor = isInitial ? '#10b981' : isAccepting ? '#ef4444' : '#475569';
             if (isSelected) {
               strokeColor = '#06b6d4';
               fillColor = '#164e63';

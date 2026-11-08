@@ -14,13 +14,14 @@ import { GrammarLab } from './components/grammar/GrammarLab';
 import { OperationsLab } from './components/operations/OperationsLab';
 import { ComparisonLab } from './components/comparison/ComparisonLab';
 import { PracticeLab } from './components/practice/PracticeLab';
+import { DualAutomataStudio } from './components/studio/DualAutomataStudio';
 import { AIGeneratorModal } from './components/ai/AIGeneratorModal';
 import { ExportModal } from './components/reports/ExportModal';
 
 import {
   Layers, Play, CheckCircle2, GitCompare, ShieldAlert, Sparkles,
   BookMarked, Network, Columns3, GraduationCap, Download, Plus,
-  Save, RotateCcw, HelpCircle, Code2, Cpu, Compass
+  Save, RotateCcw, HelpCircle, Code2, Cpu, Compass, Workflow
 } from 'lucide-react';
 
 const DEFAULT_AUTOMATON: AutomatonModel = {
@@ -111,6 +112,7 @@ export function App() {
 
   const navItems = [
     { id: 'builder', label: 'Automata Builder', icon: Cpu },
+    { id: 'dual-studio', label: 'Dual NFA/DFA Studio', icon: Workflow },
     { id: 'conversion', label: 'Conversion Lab', icon: Layers },
     { id: 'simulation', label: 'String Simulator', icon: Play },
     { id: 'equivalence', label: 'Equivalence Checker', icon: GitCompare },
@@ -372,6 +374,18 @@ export function App() {
                 </div>
               </div>
             </div>
+          )}
+
+          {activeTab === 'dual-studio' && (
+            <DualAutomataStudio
+              onLoadAutomaton={(aut) => {
+                if (!availableAutomata.some((a) => a.id === aut.id)) {
+                  setAvailableAutomata((prev) => [...prev, aut]);
+                }
+                setCurrentAutomaton(aut);
+                setActiveTab('builder');
+              }}
+            />
           )}
 
           {activeTab === 'conversion' && (
