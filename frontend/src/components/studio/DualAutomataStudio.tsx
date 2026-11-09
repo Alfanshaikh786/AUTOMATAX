@@ -23,6 +23,126 @@ interface StateMapping {
   closureFormula?: string;
 }
 
+export type DfaNamingScheme = 'aligned' | 'letters' | 'subsets' | 'sequential';
+
+interface DiscoveredSubsetInfo {
+  key: string;
+  subset: string[];
+  isInitial: boolean;
+  isFinal: boolean;
+  discoveredVia?: {
+    fromSubset: string[];
+    symbol: string;
+  };
+}
+
+/**
+ * Intelligent DFA State Naming:
+ * - 'aligned': Maps singletons {q} to q (e.g. {q1} -> q1, {q2} -> q2), start state to q0,
+ *              and composite subsets to q3, q4... to completely eliminate conflicts.
+ * - 'letters': Uses distinct uppercase letters (A, B, C...) to cleanly decouple DFA from NFA states.
+ * - 'subsets': Uses formal mathematical bracket notation [q0, q1]...
+ * - 'sequential': Sequential BFS discovery order (q0, q1, q2...).
+ */
+function computeDfaSubsetNames(
+  discoveredSubsets: DiscoveredSubsetInfo[],
+  nfaStates: string[],
+  nfaInitialState: string,
+  scheme: DfaNamingScheme
+): Map<string, string> {
+  const subsetKeyToName = new Map<string, string>();
+  if (discoveredSubsets.length === 0) return subsetKeyToName;
+
+  if (scheme === 'subsets') {
+    discoveredSubsets.forEach((d) => {
+      subsetKeyToName.set(d.key, `[${d.subset.join(',')}]`);
+    });
+    return subsetKeyToName;
+  }
+
+  if (scheme === 'letters') {
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    discoveredSubsets.forEach((d, idx) => {
+      const name = idx < letters.length ? letters[idx] : `S${idx}`;
+      subsetKeyToName.set(d.key, name);
+    });
+    return subsetKeyToName;
+  }
+
+  if (scheme === 'sequential') {
+    let prefix = 'q';
+    const match = nfaInitialState.match(/^([a-zA-Z_]+)/);
+    if (match) prefix = match[1];
+    discoveredSubsets.forEach((d, idx) => {
+      subsetKeyToName.set(d.key, `${prefix}${idx}`);
+    });
+    return subsetKeyToName;
+  }
+
+  // Scheme: 'aligned' (Smart Alignment)
+  const usedNames = new Set<string>();
+
+  // Detect state naming pattern from NFA states
+  let prefix = 'q';
+  const match = nfaInitialState.match(/^([a-zA-Z_]+)/);
+  if (match) prefix = match[1];
+  const isAllLetterStates = nfaStates.length > 0 && nfaStates.every((s) => /^[A-Z]$/.test(s));
+
+  // Pass 1: Assign exact singletons {s} -> s (e.g. {q1} -> q1, {q2} -> q2)
+  discoveredSubsets.forEach((d) => {
+    if (d.subset.length === 1) {
+      const singleState = d.subset[0];
+      if (nfaStates.includes(singleState)) {
+        subsetKeyToName.set(d.key, singleState);
+        usedNames.add(singleState);
+      }
+    }
+  });
+
+  // Pass 2: Assign initial subset if not assigned yet
+  const init = discoveredSubsets[0];
+  if (init && !subsetKeyToName.has(init.key)) {
+    if (!usedNames.has(nfaInitialState)) {
+      subsetKeyToName.set(init.key, nfaInitialState);
+      usedNames.add(nfaInitialState);
+    }
+  }
+
+  // Find maximum numeric index used among names like q0, q1...
+  let maxIndex = -1;
+  usedNames.forEach((name) => {
+    const m = name.match(/(\d+)$/);
+    if (m) {
+      maxIndex = Math.max(maxIndex, parseInt(m[1], 10));
+    }
+  });
+  let nextIdx = Math.max(maxIndex + 1, nfaStates.length);
+  let nextLetterCode = 65; // 'A'
+
+  // Pass 3: Assign remaining composite subsets in discovery order
+  discoveredSubsets.forEach((d) => {
+    if (!subsetKeyToName.has(d.key)) {
+      if (isAllLetterStates) {
+        while (usedNames.has(String.fromCharCode(nextLetterCode))) {
+          nextLetterCode++;
+        }
+        const newName = String.fromCharCode(nextLetterCode++);
+        subsetKeyToName.set(d.key, newName);
+        usedNames.add(newName);
+      } else {
+        while (usedNames.has(`${prefix}${nextIdx}`)) {
+          nextIdx++;
+        }
+        const newName = `${prefix}${nextIdx++}`;
+        subsetKeyToName.set(d.key, newName);
+        usedNames.add(newName);
+      }
+    }
+  });
+
+  return subsetKeyToName;
+}
+
 // Preset Academic Samples for Standard NFA
 const PRESET_NFA_SAMPLES: Record<string, { name: string; nfa: AutomatonModel }> = {
   sample_abc: {
@@ -283,6 +403,9 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
   // Complete DFA mode: includes Dead / Trap State '∅' so every state has an exact transition for each symbol
   const [includeDeadState, setIncludeDeadState] = useState<boolean>(true);
 
+  // DFA State Naming Scheme: 'aligned' (default: eliminates conflicts), 'letters', 'subsets', 'sequential'
+  const [dfaNamingScheme, setDfaNamingScheme] = useState<DfaNamingScheme>('aligned');
+
   const isEnfa = studioMode === 'ENFA_TO_NFA' || studioMode === 'ENFA_TO_DFA';
   const isEnfaToNfa = studioMode === 'ENFA_TO_NFA';
 
@@ -377,45 +500,34 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
       ? getEpsilonClosure(rawStart, nfa.states, nfa.epsilon_transitions || {})
       : [rawStart].sort();
 
-    const subsetMap = new Map<string, string>(); // subsetKey -> "q0"
-    const stateMappingsList: StateMapping[] = [];
-
-    let counter = 0;
-    const initialKey = initialSubset.join(',');
-    const initialDfaName = `q${counter++}`;
-    subsetMap.set(initialKey, initialDfaName);
-
-    stateMappingsList.push({
-      dfaName: initialDfaName,
-      subset: initialSubset,
-      subsetLabel: `{${initialSubset.join(', ')}}`,
-      isInitial: true,
-      isFinal: initialSubset.some((s) => nfa.accepting_states.includes(s)),
-      closureFormula: isEnfa ? `ε-closure({${rawStart}})` : undefined,
-    });
-
-    const queue: string[][] = [initialSubset];
-    const dfaTrans: Record<string, Record<string, string[]>> = {};
-    const dfaTable: Record<string, Record<string, string>> = {};
-    const dfaAcceptingSet = new Set<string>();
-
-    if (initialSubset.some((s) => nfa.accepting_states.includes(s))) {
-      dfaAcceptingSet.add(initialDfaName);
-    }
-
     // DFA alphabet strictly excludes ε
     const dfaAlphabet = nfa.alphabet.filter((sym) => sym !== 'ε');
 
+    // Step A: Explore reachable subsets via BFS using canonical keys
+    const discoveredSubsets: DiscoveredSubsetInfo[] = [];
+    const discoveredKeySet = new Set<string>();
+    const queue: string[][] = [];
+
+    const initialKey = initialSubset.join(',');
+    discoveredKeySet.add(initialKey);
+    discoveredSubsets.push({
+      key: initialKey,
+      subset: initialSubset,
+      isInitial: true,
+      isFinal: initialSubset.some((s) => nfa.accepting_states.includes(s)),
+    });
+    queue.push(initialSubset);
+
+    // Track transitions between subset keys
+    // fromKey -> symbol -> nextKey | '__DEAD__' | 'EMPTY'
+    const subsetTransitions: Record<string, Record<string, string>> = {};
+    const DEAD_KEY = '__DEAD__';
     let deadStateNeeded = false;
-    const DEAD_STATE_NAME = '∅';
 
     while (queue.length > 0) {
       const currSubset = queue.shift()!;
       const currKey = currSubset.join(',');
-      const currDfaName = subsetMap.get(currKey)!;
-
-      if (!dfaTrans[currDfaName]) dfaTrans[currDfaName] = {};
-      if (!dfaTable[currDfaName]) dfaTable[currDfaName] = {};
+      if (!subsetTransitions[currKey]) subsetTransitions[currKey] = {};
 
       for (const sym of dfaAlphabet) {
         const moveSet = getMove(currSubset, sym, nfa.transitions);
@@ -426,58 +538,133 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
         if (nextSubset.length === 0) {
           if (includeDeadState) {
             deadStateNeeded = true;
-            dfaTrans[currDfaName][sym] = [DEAD_STATE_NAME];
-            dfaTable[currDfaName][sym] = DEAD_STATE_NAME;
+            subsetTransitions[currKey][sym] = DEAD_KEY;
           } else {
-            dfaTrans[currDfaName][sym] = [];
-            dfaTable[currDfaName][sym] = '∅';
+            subsetTransitions[currKey][sym] = 'EMPTY';
           }
         } else {
           const nextKey = nextSubset.join(',');
-          let nextDfaName = subsetMap.get(nextKey);
-
-          if (!nextDfaName) {
-            nextDfaName = `q${counter++}`;
-            subsetMap.set(nextKey, nextDfaName);
-            queue.push(nextSubset);
-
-            const isAcc = nextSubset.some((s) => nfa.accepting_states.includes(s));
-            if (isAcc) {
-              dfaAcceptingSet.add(nextDfaName);
-            }
-
-            stateMappingsList.push({
-              dfaName: nextDfaName,
+          if (!discoveredKeySet.has(nextKey)) {
+            discoveredKeySet.add(nextKey);
+            discoveredSubsets.push({
+              key: nextKey,
               subset: nextSubset,
-              subsetLabel: `{${nextSubset.join(', ')}}`,
               isInitial: false,
-              isFinal: isAcc,
-              closureFormula: isEnfa ? `ε-closure(move(${currDfaName}, ${sym}))` : undefined,
+              isFinal: nextSubset.some((s) => nfa.accepting_states.includes(s)),
+              discoveredVia: {
+                fromSubset: currSubset,
+                symbol: sym,
+              },
             });
+            queue.push(nextSubset);
           }
-
-          dfaTrans[currDfaName][sym] = [nextDfaName];
-          dfaTable[currDfaName][sym] = nextDfaName;
+          subsetTransitions[currKey][sym] = nextKey;
         }
       }
     }
 
-    // Append Dead / Trap State if needed in Complete DFA mode
-    if (includeDeadState && deadStateNeeded) {
-      dfaTrans[DEAD_STATE_NAME] = {};
-      dfaTable[DEAD_STATE_NAME] = {};
-      dfaAlphabet.forEach((sym) => {
-        dfaTrans[DEAD_STATE_NAME][sym] = [DEAD_STATE_NAME];
-        dfaTable[DEAD_STATE_NAME][sym] = DEAD_STATE_NAME;
-      });
+    // Step B: Assign state names based on chosen naming scheme
+    const subsetKeyToName = computeDfaSubsetNames(
+      discoveredSubsets,
+      nfa.states,
+      rawStart,
+      dfaNamingScheme
+    );
 
-      stateMappingsList.push({
+    const DEAD_STATE_NAME = '∅';
+    const initialDfaName = subsetKeyToName.get(initialKey) || 'q0';
+
+    // Step C: Construct StateMapping items with accurate subset derivation formulas
+    const rawStateMappings: StateMapping[] = discoveredSubsets.map((d) => {
+      const dfaName = subsetKeyToName.get(d.key)!;
+      let closureFormula: string | undefined = undefined;
+
+      if (d.isInitial) {
+        closureFormula = isEnfa ? `ε-closure({${rawStart}})` : `{${rawStart}}`;
+      } else if (d.discoveredVia) {
+        const fromSubsetStr = `{${d.discoveredVia.fromSubset.join(', ')}}`;
+        closureFormula = isEnfa
+          ? `ε-closure(move(${fromSubsetStr}, ${d.discoveredVia.symbol}))`
+          : `move(${fromSubsetStr}, ${d.discoveredVia.symbol})`;
+      }
+
+      return {
+        dfaName,
+        subset: d.subset,
+        subsetLabel: `{${d.subset.join(', ')}}`,
+        isInitial: d.isInitial,
+        isFinal: d.isFinal,
+        closureFormula,
+      };
+    });
+
+    // Dead / Trap State mapping if needed in Complete DFA mode
+    if (includeDeadState && deadStateNeeded) {
+      rawStateMappings.push({
         dfaName: DEAD_STATE_NAME,
         subset: [],
         subsetLabel: '∅',
         isInitial: false,
         isFinal: false,
         closureFormula: 'Dead / Trap State (Total Function)',
+      });
+    }
+
+    // Step D: Order StateMappings:
+    // Initial state ALWAYS first, followed by remaining states sorted by natural name order, followed by dead state
+    const initMapping = rawStateMappings.find((m) => m.isInitial);
+    const deadMapping = rawStateMappings.find((m) => m.dfaName === DEAD_STATE_NAME);
+    const otherMappings = rawStateMappings.filter((m) => !m.isInitial && m.dfaName !== DEAD_STATE_NAME);
+
+    otherMappings.sort((a, b) =>
+      a.dfaName.localeCompare(b.dfaName, undefined, { numeric: true, sensitivity: 'base' })
+    );
+
+    const stateMappingsList: StateMapping[] = [
+      ...(initMapping ? [initMapping] : []),
+      ...otherMappings,
+      ...(deadMapping ? [deadMapping] : []),
+    ];
+
+    // Step E: Construct DFA transition table and transition records
+    const dfaTrans: Record<string, Record<string, string[]>> = {};
+    const dfaTable: Record<string, Record<string, string>> = {};
+    const dfaAcceptingSet = new Set<string>();
+
+    stateMappingsList.forEach((m) => {
+      if (m.isFinal) {
+        dfaAcceptingSet.add(m.dfaName);
+      }
+    });
+
+    discoveredSubsets.forEach((d) => {
+      const fromName = subsetKeyToName.get(d.key)!;
+      if (!dfaTrans[fromName]) dfaTrans[fromName] = {};
+      if (!dfaTable[fromName]) dfaTable[fromName] = {};
+
+      for (const sym of dfaAlphabet) {
+        const targetKey = subsetTransitions[d.key]?.[sym];
+        if (!targetKey || targetKey === 'EMPTY') {
+          dfaTrans[fromName][sym] = [];
+          dfaTable[fromName][sym] = '∅';
+        } else if (targetKey === DEAD_KEY) {
+          dfaTrans[fromName][sym] = [DEAD_STATE_NAME];
+          dfaTable[fromName][sym] = DEAD_STATE_NAME;
+        } else {
+          const targetName = subsetKeyToName.get(targetKey)!;
+          dfaTrans[fromName][sym] = [targetName];
+          dfaTable[fromName][sym] = targetName;
+        }
+      }
+    });
+
+    // Dead state loopback transitions
+    if (includeDeadState && deadStateNeeded) {
+      dfaTrans[DEAD_STATE_NAME] = {};
+      dfaTable[DEAD_STATE_NAME] = {};
+      dfaAlphabet.forEach((sym) => {
+        dfaTrans[DEAD_STATE_NAME][sym] = [DEAD_STATE_NAME];
+        dfaTable[DEAD_STATE_NAME][sym] = DEAD_STATE_NAME;
       });
     }
 
@@ -514,7 +701,7 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
       nfaTransitionList: nfaTransList,
       dfaTransitionList: dfaTransList,
     };
-  }, [nfa, isEnfa, includeDeadState]);
+  }, [nfa, isEnfa, includeDeadState, dfaNamingScheme]);
 
   // ε-NFA to standard NFA (Epsilon-Elimination algorithm)
   const enfaToNfaResult = useMemo(() => {
@@ -577,9 +764,8 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
           closureOfFrom: cq,
           moveSet,
           closureOfMove: destClosure,
-          formula: `δ'(${q}, ${a}) = ε-closure(move({${cq.join(', ')}}, ${a})) = ${
-            destClosure.length > 0 ? `{${destClosure.join(', ')}}` : '∅'
-          }`,
+          formula: `δ'(${q}, ${a}) = ε-closure(move({${cq.join(', ')}}, ${a})) = ${destClosure.length > 0 ? `{${destClosure.join(', ')}}` : '∅'
+            }`,
         });
       });
     });
@@ -1021,13 +1207,12 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
       <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-wrap items-center justify-between gap-4 shadow-xl">
         <div className="flex items-center gap-3">
           <div
-            className={`w-10 h-10 rounded-xl bg-gradient-to-tr ${
-              isEnfaToNfa
+            className={`w-10 h-10 rounded-xl bg-gradient-to-tr ${isEnfaToNfa
                 ? 'from-indigo-600 to-purple-600 shadow-indigo-600/20'
                 : isEnfa
-                ? 'from-purple-600 to-indigo-600 shadow-purple-600/20'
-                : 'from-cyan-600 to-blue-600 shadow-cyan-600/20'
-            } flex items-center justify-center text-white shadow-lg`}
+                  ? 'from-purple-600 to-indigo-600 shadow-purple-600/20'
+                  : 'from-cyan-600 to-blue-600 shadow-cyan-600/20'
+              } flex items-center justify-center text-white shadow-lg`}
           >
             {isEnfaToNfa ? <Sparkles className="w-5 h-5" /> : isEnfa ? <GitFork className="w-5 h-5" /> : <Layers className="w-5 h-5" />}
           </div>
@@ -1036,16 +1221,15 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
               {isEnfaToNfa
                 ? 'Dual ε-NFA ➔ NFA Studio'
                 : isEnfa
-                ? 'Dual ε-NFA ➔ DFA Studio'
-                : 'Dual NFA ➔ DFA Studio'}
+                  ? 'Dual ε-NFA ➔ DFA Studio'
+                  : 'Dual NFA ➔ DFA Studio'}
               <span
-                className={`px-2 py-0.5 border rounded font-mono text-[10px] ${
-                  isEnfaToNfa
+                className={`px-2 py-0.5 border rounded font-mono text-[10px] ${isEnfaToNfa
                     ? 'bg-indigo-950 border-indigo-800 text-indigo-300'
                     : isEnfa
-                    ? 'bg-purple-950 border-purple-800 text-purple-300'
-                    : 'bg-cyan-950 border-cyan-800 text-cyan-300'
-                }`}
+                      ? 'bg-purple-950 border-purple-800 text-purple-300'
+                      : 'bg-cyan-950 border-cyan-800 text-cyan-300'
+                  }`}
               >
                 {isEnfaToNfa ? 'EPSILON ELIMINATION ENGINE' : isEnfa ? 'EPSILON CLOSURE ENGINE' : 'LIVE REACTIVE ENGINE'}
               </span>
@@ -1054,8 +1238,8 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
               {isEnfaToNfa
                 ? "Define any ε-NFA with spontaneous transitions. Watch the ε-elimination algorithm δ'(q, a) = ε-closure(move(ε-closure(q), a)), updated final states, tables, and graphs generate in real time."
                 : isEnfa
-                ? 'Define any ε-NFA with spontaneous ε-transitions. Watch the ε-closures, subset construction, 5-tuples, and graphs generate in real time.'
-                : 'Define any NFA using the input controls. Watch the mathematical 5-tuples, transition tables, subset mappings, and graphs generate simultaneously in real time.'}
+                  ? 'Define any ε-NFA with spontaneous ε-transitions. Watch the ε-closures, subset construction, 5-tuples, and graphs generate in real time.'
+                  : 'Define any NFA using the input controls. Watch the mathematical 5-tuples, transition tables, subset mappings, and graphs generate simultaneously in real time.'}
             </p>
           </div>
         </div>
@@ -1066,33 +1250,30 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
           <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
             <button
               onClick={() => handleSwitchMode('NFA_TO_DFA')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                studioMode === 'NFA_TO_DFA'
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${studioMode === 'NFA_TO_DFA'
                   ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30'
                   : 'text-slate-400 hover:text-white'
-              }`}
+                }`}
             >
               <Workflow className="w-3.5 h-3.5" />
               NFA → DFA
             </button>
             <button
               onClick={() => handleSwitchMode('ENFA_TO_NFA')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                studioMode === 'ENFA_TO_NFA'
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${studioMode === 'ENFA_TO_NFA'
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
                   : 'text-slate-400 hover:text-white'
-              }`}
+                }`}
             >
               <Sparkles className="w-3.5 h-3.5" />
               ε-NFA → NFA
             </button>
             <button
               onClick={() => handleSwitchMode('ENFA_TO_DFA')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                studioMode === 'ENFA_TO_DFA'
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${studioMode === 'ENFA_TO_DFA'
                   ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
                   : 'text-slate-400 hover:text-white'
-              }`}
+                }`}
             >
               <GitFork className="w-3.5 h-3.5" />
               ε-NFA → DFA
@@ -1109,23 +1290,22 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
             >
               {isEnfa
                 ? Object.entries(PRESET_ENFA_SAMPLES).map(([key, sample]) => (
-                    <option key={key} value={key} className="bg-slate-900 text-slate-200">
-                      {sample.name}
-                    </option>
-                  ))
+                  <option key={key} value={key} className="bg-slate-900 text-slate-200">
+                    {sample.name}
+                  </option>
+                ))
                 : Object.entries(PRESET_NFA_SAMPLES).map(([key, sample]) => (
-                    <option key={key} value={key} className="bg-slate-900 text-slate-200">
-                      {sample.name}
-                    </option>
-                  ))}
+                  <option key={key} value={key} className="bg-slate-900 text-slate-200">
+                    {sample.name}
+                  </option>
+                ))}
             </select>
           </div>
 
           <button
             onClick={() => onLoadAutomaton(isEnfaToNfa ? enfaToNfaResult.targetNfa : dfa)}
-            className={`px-3 py-1.5 ${
-              isEnfaToNfa ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-cyan-600 hover:bg-cyan-500'
-            } text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow`}
+            className={`px-3 py-1.5 ${isEnfaToNfa ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-cyan-600 hover:bg-cyan-500'
+              } text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow`}
           >
             <ExternalLink className="w-3.5 h-3.5" />
             Load {isEnfaToNfa ? 'Converted NFA' : 'DFA'} into Builder
@@ -1133,9 +1313,8 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
 
           <button
             onClick={() => onLoadAutomaton(nfa)}
-            className={`px-3 py-1.5 ${
-              isEnfa ? 'bg-purple-600 hover:bg-purple-500' : 'bg-blue-600 hover:bg-blue-500'
-            } text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow`}
+            className={`px-3 py-1.5 ${isEnfa ? 'bg-purple-600 hover:bg-purple-500' : 'bg-blue-600 hover:bg-blue-500'
+              } text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow`}
           >
             <ExternalLink className="w-3.5 h-3.5" />
             Load {isEnfa ? 'ε-NFA' : 'NFA'} into Builder
@@ -1357,11 +1536,10 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
                     value={availableTransitionSymbols.includes(transSymbol) ? transSymbol : (availableTransitionSymbols[0] || '')}
                     onChange={(e) => setTransSymbol(e.target.value)}
                     title="Symbol"
-                    className={`w-16 bg-slate-900 border rounded px-1.5 py-1 font-mono font-bold text-xs outline-none ${
-                      transSymbol === 'ε'
+                    className={`w-16 bg-slate-900 border rounded px-1.5 py-1 font-mono font-bold text-xs outline-none ${transSymbol === 'ε'
                         ? 'border-purple-600 text-purple-300 bg-purple-950/40'
                         : 'border-slate-700 text-cyan-300 focus:border-cyan-500'
-                    }`}
+                      }`}
                   >
                     {availableTransitionSymbols.map((sym) => (
                       <option
@@ -1407,13 +1585,12 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
               {/* Feedback toast message */}
               {feedback && (
                 <div
-                  className={`mt-1 text-xs px-2.5 py-1 rounded-md border flex items-center justify-between transition-all ${
-                    feedback.type === 'success'
+                  className={`mt-1 text-xs px-2.5 py-1 rounded-md border flex items-center justify-between transition-all ${feedback.type === 'success'
                       ? 'bg-emerald-950/70 border-emerald-800 text-emerald-300'
                       : feedback.type === 'error'
-                      ? 'bg-red-950/70 border-red-800 text-red-300'
-                      : 'bg-cyan-950/70 border-cyan-800 text-cyan-300'
-                  }`}
+                        ? 'bg-red-950/70 border-red-800 text-red-300'
+                        : 'bg-cyan-950/70 border-cyan-800 text-cyan-300'
+                    }`}
                 >
                   <span className="flex items-center gap-1.5 font-mono text-[11px]">
                     {feedback.type === 'success' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
@@ -1548,7 +1725,7 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
             </div>
           )}
 
-          {/* Converted Formal Definition (NFA in ENFA_TO_NFA mode, DFA otherwise) */}
+
           {isEnfaToNfa ? (
             <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-2.5 shadow-xl">
               <div className="flex items-center justify-between border-b border-slate-800 pb-2">
@@ -1726,9 +1903,8 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
                               return (
                                 <td
                                   key={sym}
-                                  className={`py-2 px-3 text-center font-bold ${
-                                    dests.length === 0 ? 'text-amber-400/90' : 'text-indigo-300'
-                                  }`}
+                                  className={`py-2 px-3 text-center font-bold ${dests.length === 0 ? 'text-amber-400/90' : 'text-indigo-300'
+                                    }`}
                                 >
                                   {dests.length > 0 ? `{${dests.join(', ')}}` : '∅'}
                                 </td>
@@ -1796,6 +1972,62 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
                     <span className="font-semibold text-cyan-400">Complete DFA (Dead State ∅)</span>
                   </label>
                 </div>
+
+                {/* State Naming Scheme Selector (Prevents q1 / q2 conflict) */}
+                <div className="flex items-center justify-between gap-2 flex-wrap text-xs pt-0.5 pb-1 border-b border-slate-800/60">
+                  <span className="text-slate-400 text-[11px] font-sans">State Naming:</span>
+                  <div className="inline-flex rounded-lg bg-slate-950 p-0.5 border border-slate-800 gap-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setDfaNamingScheme('aligned')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono transition ${
+                        dfaNamingScheme === 'aligned'
+                          ? 'bg-cyan-600 text-white font-bold shadow'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                      title="Smart alignment with NFA states (e.g. {q1} → q1, {q2} → q2 to eliminate naming conflicts)"
+                    >
+                      q₀, q₁ (Aligned)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDfaNamingScheme('letters')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono transition ${
+                        dfaNamingScheme === 'letters'
+                          ? 'bg-cyan-600 text-white font-bold shadow'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                      title="Distinct capital letters (A, B, C...) to completely separate DFA and NFA states"
+                    >
+                      A, B, C (Letters)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDfaNamingScheme('subsets')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono transition ${
+                        dfaNamingScheme === 'subsets'
+                          ? 'bg-cyan-600 text-white font-bold shadow'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                      title="Direct mathematical subset notation [q0, q1]..."
+                    >
+                      [q₀, q₁] (Subsets)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDfaNamingScheme('sequential')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono transition ${
+                        dfaNamingScheme === 'sequential'
+                          ? 'bg-cyan-600 text-white font-bold shadow'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                      title="Sequential BFS discovery order"
+                    >
+                      Sequential
+                    </button>
+                  </div>
+                </div>
+
                 <div className="overflow-x-auto border border-slate-800 rounded-xl bg-slate-950/80">
                   <table className="w-full text-left text-xs font-mono">
                     <thead className="bg-slate-900 border-b border-slate-800 text-slate-400">
@@ -1812,9 +2044,8 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
                       {stateMappings.map((m) => (
                         <tr
                           key={m.dfaName}
-                          className={`hover:bg-slate-900/50 transition ${
-                            m.dfaName === '∅' ? 'bg-amber-950/20 border-t border-amber-900/30' : ''
-                          }`}
+                          className={`hover:bg-slate-900/50 transition ${m.dfaName === '∅' ? 'bg-amber-950/20 border-t border-amber-900/30' : ''
+                            }`}
                         >
                           <td className="py-2 px-3 font-bold text-white">
                             {m.isInitial && <span className="text-emerald-400 mr-0.5">→</span>}
@@ -1831,9 +2062,8 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
                             return (
                               <td
                                 key={sym}
-                                className={`py-2 px-3 text-center font-bold ${
-                                  target === '∅' ? 'text-amber-400/90' : 'text-cyan-300'
-                                }`}
+                                className={`py-2 px-3 text-center font-bold ${target === '∅' ? 'text-amber-400/90' : 'text-cyan-300'
+                                  }`}
                               >
                                 {target}
                               </td>
@@ -1848,13 +2078,13 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
 
               {/* State Mapping Breakdown */}
               <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col gap-2 shadow-xl">
-                <h3 className="font-bold text-white text-sm border-b border-slate-800 pb-1.5 flex items-center justify-between">
-                  <span>State Mapping</span>
+                <div className="flex items-center justify-between border-b border-slate-800 pb-1.5 flex-wrap gap-1">
+                  <h3 className="font-bold text-white text-sm">State Mapping</h3>
                   <span className="text-[10px] font-mono text-cyan-400">{stateMappings.length} DFA Subsets</span>
-                </h3>
-                <div className="font-mono text-xs space-y-1 max-h-44 overflow-y-auto pr-1">
+                </div>
+                <div className="font-mono text-xs space-y-1.5 max-h-48 overflow-y-auto pr-1">
                   {stateMappings.map((m) => (
-                    <div key={m.dfaName} className="flex items-center gap-2 text-slate-300 py-0.5">
+                    <div key={m.dfaName} className="flex items-center gap-2 text-slate-300 py-0.5 flex-wrap">
                       <span className={`font-bold ${m.dfaName === '∅' ? 'text-amber-400' : 'text-cyan-400'}`}>
                         • {m.dfaName}
                       </span>
@@ -1863,7 +2093,7 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
                         {m.subsetLabel}
                       </span>
                       {m.closureFormula && (
-                        <span className="text-[10px] text-slate-500 italic hidden sm:inline">
+                        <span className="text-[10px] text-slate-400 font-sans italic bg-slate-950/70 px-1.5 py-0.5 rounded border border-slate-800/80">
                           ({m.closureFormula})
                         </span>
                       )}
@@ -1879,6 +2109,9 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
                     </div>
                   ))}
                 </div>
+                <p className="text-[10px] text-slate-400 italic border-t border-slate-800/60 pt-1">
+                  • Each DFA state represents a subset of NFA states. Singletons align with original NFA states to preserve identity and prevent naming conflicts.
+                </p>
               </div>
             </>
           )}
@@ -1895,11 +2128,10 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
               {isEnfa ? 'ε-NFA Graph' : 'NFA Graph'}
             </h3>
             <span
-              className={`text-xs font-mono px-2 py-0.5 rounded border ${
-                isEnfa
+              className={`text-xs font-mono px-2 py-0.5 rounded border ${isEnfa
                   ? 'text-purple-300 bg-purple-950/60 border-purple-800/80'
                   : 'text-cyan-300 bg-cyan-950/60 border-cyan-800/80'
-              }`}
+                }`}
             >
               {nfa.states.length} states · {nfaTransitionList.length} transitions
             </span>
@@ -1922,11 +2154,10 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
                 : `DFA Graph (${includeDeadState ? 'Complete Total Automaton' : 'Equivalent DFA'})`}
             </h3>
             <span
-              className={`text-xs font-mono px-2 py-0.5 rounded border ${
-                isEnfaToNfa
+              className={`text-xs font-mono px-2 py-0.5 rounded border ${isEnfaToNfa
                   ? 'text-indigo-300 bg-indigo-950/60 border-indigo-800/80'
                   : 'text-emerald-300 bg-emerald-950/60 border-emerald-800/80'
-              }`}
+                }`}
             >
               {isEnfaToNfa
                 ? `${enfaToNfaResult.targetNfa.states.length} states · ${enfaToNfaResult.targetTransitionList.length} transitions`
