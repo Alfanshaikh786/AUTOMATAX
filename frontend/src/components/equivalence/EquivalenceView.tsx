@@ -7,8 +7,6 @@ import {
   XCircle,
   Play,
   RotateCcw,
-  Plus,
-  Trash2,
   ArrowRight,
   ExternalLink,
   ShieldCheck,
@@ -206,6 +204,8 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
   // Form states for DFA 1
   const [newState1, setNewState1] = useState<string>('');
   const [newSym1, setNewSym1] = useState<string>('');
+  const [newFinalState1, setNewFinalState1] = useState<string>('');
+  const [delFinalState1, setDelFinalState1] = useState<string>('');
   const [transFrom1, setTransFrom1] = useState<string>('q0');
   const [transSym1, setTransSym1] = useState<string>('0');
   const [transTo1, setTransTo1] = useState<string>('q0');
@@ -214,10 +214,15 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
   // Form states for DFA 2
   const [newState2, setNewState2] = useState<string>('');
   const [newSym2, setNewSym2] = useState<string>('');
+  const [newFinalState2, setNewFinalState2] = useState<string>('');
+  const [delFinalState2, setDelFinalState2] = useState<string>('');
   const [transFrom2, setTransFrom2] = useState<string>('A');
   const [transSym2, setTransSym2] = useState<string>('0');
   const [transTo2, setTransTo2] = useState<string>('A');
   const [selectedDeleteTrans2, setSelectedDeleteTrans2] = useState<string>('');
+
+  // Option: Auto-complete missing transitions as non-accepting Dead State (∅)
+  const [autoCompleteDeadState, setAutoCompleteDeadState] = useState<boolean>(true);
 
   // Interactive String Tester
   const [testString, setTestString] = useState<string>('00');
@@ -266,6 +271,35 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
     }
   }, [feedback]);
 
+  // Compile list of transitions for delete dropdowns
+  const dfa1TransitionList = useMemo(() => {
+    const list: Array<{ from: string; symbol: string; dest: string }> = [];
+    dfa1.states.forEach((s) => {
+      dfa1.alphabet.forEach((sym) => {
+        const d = dfa1.transitions[s]?.[sym]?.[0];
+        if (d) list.push({ from: s, symbol: sym, dest: d });
+      });
+    });
+    return list;
+  }, [dfa1]);
+
+  const dfa2TransitionList = useMemo(() => {
+    const list: Array<{ from: string; symbol: string; dest: string }> = [];
+    dfa2.states.forEach((s) => {
+      dfa2.alphabet.forEach((sym) => {
+        const d = dfa2.transitions[s]?.[sym]?.[0];
+        if (d) list.push({ from: s, symbol: sym, dest: d });
+      });
+    });
+    return list;
+  }, [dfa2]);
+
+  // Transition completeness metrics
+  const dfa1RequiredTrans = dfa1.states.length * dfa1.alphabet.length;
+  const dfa2RequiredTrans = dfa2.states.length * dfa2.alphabet.length;
+  const isDfa1Complete = dfa1RequiredTrans > 0 && dfa1TransitionList.length === dfa1RequiredTrans;
+  const isDfa2Complete = dfa2RequiredTrans > 0 && dfa2TransitionList.length === dfa2RequiredTrans;
+
   // Helper to load presets
   const handleLoadPreset = (key: string) => {
     const sample = PRESET_EQUIVALENCE_SAMPLES[key];
@@ -277,19 +311,35 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
     }
   };
 
-  // Helper to load an existing saved automaton into DFA 1 or DFA 2
-  const handleLoadExisting = (autId: string, target: 'dfa1' | 'dfa2') => {
-    const found = availableAutomata.find((a) => a.id === autId);
-    if (!found) return;
-    const cloned = JSON.parse(JSON.stringify(found));
-    cloned.type = 'DFA';
-    if (target === 'dfa1') {
-      setDfa1(cloned);
-      setFeedback({ type: 'info', text: `Loaded "${cloned.name}" into DFA 1` });
-    } else {
-      setDfa2(cloned);
-      setFeedback({ type: 'info', text: `Loaded "${cloned.name}" into DFA 2` });
-    }
+  // Reset Individual DFAs
+  const handleResetDfa1 = () => {
+    setDfa1({
+      id: `dfa1_${Date.now()}`,
+      name: 'New DFA 1',
+      type: 'DFA',
+      states: ['q0'],
+      alphabet: ['0', '1'],
+      initial_state: 'q0',
+      accepting_states: [],
+      transitions: {},
+      epsilon_transitions: {},
+    });
+    setFeedback({ type: 'info', text: 'Reset DFA 1 to initial state q0.' });
+  };
+
+  const handleResetDfa2 = () => {
+    setDfa2({
+      id: `dfa2_${Date.now()}`,
+      name: 'New DFA 2',
+      type: 'DFA',
+      states: ['A'],
+      alphabet: ['0', '1'],
+      initial_state: 'A',
+      accepting_states: [],
+      transitions: {},
+      epsilon_transitions: {},
+    });
+    setFeedback({ type: 'info', text: 'Reset DFA 2 to initial state A.' });
   };
 
   // ==========================================
@@ -303,27 +353,83 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
     const start1 = dfa1.initial_state;
     const start2 = dfa2.initial_state;
 
+    // 1. Basic configuration checks
     if (!start1 || !start2 || dfa1.states.length === 0 || dfa2.states.length === 0) {
       return {
         isReady: false,
+        status: 'incomplete_definition',
         isEquivalent: false,
         counterexample: null,
         distinguishingPair: null,
-        pairingSteps: [],
-        uniquePairsDiscovered: [],
-        explanation: 'Please define at least one state and initial state for both DFAs.',
-        combinedAlphabet: [],
+        pairingSteps: [] as PairingStep[],
+        uniquePairsDiscovered: [] as [string, string][],
+        explanation: 'Please define states and start state for both DFA 1 and DFA 2.',
+        combinedAlphabet,
+      };
+    }
+
+    // 2. Check if either DFA has 0 transitions defined
+    const dfa1TransCount = dfa1TransitionList.length;
+    const dfa2TransCount = dfa2TransitionList.length;
+
+    if (dfa1TransCount === 0 || dfa2TransCount === 0) {
+      const unconfigured =
+        dfa1TransCount === 0 && dfa2TransCount === 0
+          ? 'Both DFA 1 and DFA 2 have'
+          : dfa1TransCount === 0
+          ? 'DFA 1 has'
+          : 'DFA 2 has';
+      return {
+        isReady: false,
+        status: 'missing_transitions',
+        isEquivalent: false,
+        counterexample: null,
+        distinguishingPair: null,
+        pairingSteps: [] as PairingStep[],
+        uniquePairsDiscovered: [] as [string, string][],
+        explanation: `Under Construction: ${unconfigured} no transitions defined yet. Please add transitions using the "Add Transition" form before equivalence can be verified.`,
+        combinedAlphabet,
+      };
+    }
+
+    // 3. Check if neither DFA has any final states
+    if (dfa1.accepting_states.length === 0 && dfa2.accepting_states.length === 0) {
+      return {
+        isReady: false,
+        status: 'no_final_states',
+        isEquivalent: false,
+        counterexample: null,
+        distinguishingPair: null,
+        pairingSteps: [] as PairingStep[],
+        uniquePairsDiscovered: [] as [string, string][],
+        explanation: 'Neither DFA has final states defined (F₁ = ∅, F₂ = ∅). Both DFAs currently reject all strings (Language L = ∅). Please add at least one final state using "Add Final State" to test language recognition.',
+        combinedAlphabet,
+      };
+    }
+
+    // 4. Strict DFA mode check
+    if (!autoCompleteDeadState && (!isDfa1Complete || !isDfa2Complete)) {
+      return {
+        isReady: false,
+        status: 'strict_incomplete',
+        isEquivalent: false,
+        counterexample: null,
+        distinguishingPair: null,
+        pairingSteps: [] as PairingStep[],
+        uniquePairsDiscovered: [] as [string, string][],
+        explanation: 'Strict Mode: Every state must have an exact transition defined for every alphabet symbol. Enable "Auto-complete Missing Transitions with Dead State (∅)" or complete all missing transitions.',
+        combinedAlphabet,
       };
     }
 
     const F1 = new Set(dfa1.accepting_states);
     const F2 = new Set(dfa2.accepting_states);
 
-    // Total function lookup (missing transition defaults to dead state ∅)
+    // Total function lookup (missing transition routes to Dead State ∅)
     const getNextState = (aut: AutomatonModel, state: string, symbol: string): string => {
       if (state === '∅') return '∅';
-      const dests = aut.transitions[state]?.[symbol] || [];
-      return dests.length > 0 ? dests[0] : '∅';
+      const dests = aut.transitions[state]?.[symbol]?.[0];
+      return dests || '∅';
     };
 
     const isFinalState = (autId: 1 | 2, state: string): boolean => {
@@ -342,7 +448,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
       return 'mismatch';
     };
 
-    // 1. Initial State Pair Check (Empty string ε evaluation)
+    // 5. Initial State Pair Check (Empty string ε evaluation)
     const startStatus = getPairStatus(start1, start2);
     const steps: PairingStep[] = [];
     const visitedPairs = new Set<string>();
@@ -356,6 +462,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
       const isF1 = isFinalState(1, start1);
       return {
         isReady: true,
+        status: 'evaluated',
         isEquivalent: false,
         counterexample: 'ε',
         distinguishingPair: [start1, start2] as [string, string],
@@ -367,7 +474,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
             isFinal1: isF1,
             isFinal2: !isF1,
             pairStatus: 'mismatch',
-            symbol: 'ε (empty string)',
+            symbol: 'ε',
             nextPair: [start1, start2] as [string, string],
             nextPairLabel: `(${start1}, ${start2})`,
             nextIsFinal1: isF1,
@@ -375,16 +482,16 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
             nextPairStatus: 'mismatch',
             isNewDiscovery: false,
             path: 'ε',
-            note: `Initial states differ on empty string ε. DFA ${isF1 ? '1' : '2'} accepts, DFA ${isF1 ? '2' : '1'} rejects.`,
+            note: `Initial states differ on empty string ε. DFA ${isF1 ? '1' : '2'} accepts (${isF1 ? start1 : start2} ∈ F), DFA ${isF1 ? '2' : '1'} rejects (${isF1 ? start2 : start1} ∉ F).`,
           },
         ],
         uniquePairsDiscovered: [[start1, start2]],
-        explanation: `NOT EQUIVALENT: The DFAs differ on the empty string ε. DFA ${isF1 ? '1' : '2'} accepts ε because start state ${isF1 ? start1 : start2} is final, while DFA ${isF1 ? '2' : '1'} rejects ε.`,
+        explanation: `NOT EQUIVALENT: The DFAs differ on the empty string ε. DFA ${isF1 ? '1' : '2'} accepts ε because start state "${isF1 ? start1 : start2}" is final, while DFA ${isF1 ? '2' : '1'} rejects ε.`,
         combinedAlphabet,
       };
     }
 
-    // 2. BFS State Pairing Exploration
+    // 6. BFS State Pairing Exploration
     const queue: Array<{ pair: [string, string]; path: string }> = [
       { pair: [start1, start2], path: '' },
     ];
@@ -415,10 +522,12 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
         let note = '';
         if (nextStatus === 'mismatch') {
           note = `DISTINGUISHING PAIR! On input '${nextPath}', DFA ${nextF1 ? '1' : '2'} accepts (${nextF1 ? nextP : nextQ} ∈ F), but DFA ${nextF1 ? '2' : '1'} rejects (${nextF1 ? nextQ : nextP} ∉ F).`;
+        } else if (nextP === '∅' || nextQ === '∅') {
+          note = `Transition leads to Dead State ∅ (undefined transition). Both remain non-accepting.`;
         } else if (isNew) {
-          note = `New reachable state pair discovered and added to queue.`;
+          note = `New reachable state pair discovered and queued for evaluation.`;
         } else {
-          note = `State pair already explored in previous step.`;
+          note = `State pair already visited in prior step.`;
         }
 
         steps.push({
@@ -443,8 +552,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
           foundMismatch = true;
           counterexampleString = nextPath;
           distinguishingPairFound = [nextP, nextQ];
-          mismatchExplanation = `NOT EQUIVALENT: Found distinguishing counterexample string "${nextPath}". On this input, DFA ${nextF1 ? '1' : '2'} accepts (ending in final state ${nextF1 ? nextP : nextQ}), whereas DFA ${nextF1 ? '2' : '1'} rejects (ending in non-final state ${nextF1 ? nextQ : nextP}).`;
-          // We can break or stop exploring further branches after first distinguishing state
+          mismatchExplanation = `NOT EQUIVALENT: Found distinguishing counterexample string "${nextPath}". On this input, DFA ${nextF1 ? '1' : '2'} accepts (ending in final state "${nextF1 ? nextP : nextQ}"), whereas DFA ${nextF1 ? '2' : '1'} rejects (ending in non-final state "${nextF1 ? nextQ : nextP}").`;
           break;
         }
 
@@ -463,6 +571,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
     if (foundMismatch) {
       return {
         isReady: true,
+        status: 'evaluated',
         isEquivalent: false,
         counterexample: counterexampleString,
         distinguishingPair: distinguishingPairFound,
@@ -475,6 +584,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
 
     return {
       isReady: true,
+      status: 'evaluated',
       isEquivalent: true,
       counterexample: null,
       distinguishingPair: null,
@@ -483,14 +593,13 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
       explanation: `EQUIVALENT: L(DFA 1) ≡ L(DFA 2). Explored all ${visitedPairs.size} reachable state pairs in the Cartesian cross-product. Every reachable pair shares identical acceptance status across the entire combined alphabet {${combinedAlphabet.join(', ')}}.`,
       combinedAlphabet,
     };
-  }, [dfa1, dfa2]);
+  }, [dfa1, dfa2, dfa1TransitionList, dfa2TransitionList, autoCompleteDeadState, isDfa1Complete, isDfa2Complete]);
 
   // ==========================================
   // CUSTOM STRING TRACE RUNNER
   // ==========================================
   const stringTraceResult = useMemo(() => {
     if (!testString && testString !== '') return null;
-    const alphabet = equivalenceResult.combinedAlphabet;
 
     const runTrace = (dfa: AutomatonModel, str: string) => {
       let curr = dfa.initial_state;
@@ -512,9 +621,11 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
     const isSameVerdict = trace1.isAccepted === trace2.isAccepted;
 
     return { trace1, trace2, isSameVerdict, testString };
-  }, [dfa1, dfa2, testString, equivalenceResult.combinedAlphabet]);
+  }, [dfa1, dfa2, testString]);
 
-  // Helper functions for DFA 1 modifications
+  // ==========================================
+  // MUTATION HANDLERS (DFA 1)
+  // ==========================================
   const handleAddState1 = () => {
     const s = newState1.trim();
     if (!s) return;
@@ -551,6 +662,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
       initial_state: prev.initial_state === s ? (newStates[0] || '') : prev.initial_state,
       transitions: newTrans,
     }));
+    setFeedback({ type: 'info', text: `Deleted state "${s}" from DFA 1.` });
   };
 
   const handleAddSymbol1 = () => {
@@ -582,6 +694,28 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
       alphabet: newAlphabet,
       transitions: newTrans,
     }));
+    setFeedback({ type: 'info', text: `Deleted symbol "${sym}" from DFA 1.` });
+  };
+
+  const handleAddFinalState1 = () => {
+    if (!newFinalState1) return;
+    if (dfa1.accepting_states.includes(newFinalState1)) return;
+    setDfa1((prev) => ({
+      ...prev,
+      accepting_states: [...prev.accepting_states, newFinalState1],
+    }));
+    setFeedback({ type: 'success', text: `Added state "${newFinalState1}" to DFA 1 final states.` });
+    setNewFinalState1('');
+  };
+
+  const handleDeleteFinalState1 = () => {
+    if (!delFinalState1) return;
+    setDfa1((prev) => ({
+      ...prev,
+      accepting_states: prev.accepting_states.filter((s) => s !== delFinalState1),
+    }));
+    setFeedback({ type: 'info', text: `Removed state "${delFinalState1}" from DFA 1 final states.` });
+    setDelFinalState1('');
   };
 
   const handleAddTransition1 = () => {
@@ -603,14 +737,19 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
     setDfa1((prev) => {
       const nextTrans = { ...prev.transitions };
       if (nextTrans[from]) {
-        delete nextTrans[from][sym];
+        const nextMap = { ...nextTrans[from] };
+        delete nextMap[sym];
+        nextTrans[from] = nextMap;
       }
       return { ...prev, transitions: nextTrans };
     });
+    setFeedback({ type: 'info', text: `Deleted transition δ1(${from}, ${sym}) in DFA 1.` });
     setSelectedDeleteTrans1('');
   };
 
-  // Helper functions for DFA 2 modifications
+  // ==========================================
+  // MUTATION HANDLERS (DFA 2)
+  // ==========================================
   const handleAddState2 = () => {
     const s = newState2.trim();
     if (!s) return;
@@ -647,6 +786,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
       initial_state: prev.initial_state === s ? (newStates[0] || '') : prev.initial_state,
       transitions: newTrans,
     }));
+    setFeedback({ type: 'info', text: `Deleted state "${s}" from DFA 2.` });
   };
 
   const handleAddSymbol2 = () => {
@@ -678,6 +818,28 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
       alphabet: newAlphabet,
       transitions: newTrans,
     }));
+    setFeedback({ type: 'info', text: `Deleted symbol "${sym}" from DFA 2.` });
+  };
+
+  const handleAddFinalState2 = () => {
+    if (!newFinalState2) return;
+    if (dfa2.accepting_states.includes(newFinalState2)) return;
+    setDfa2((prev) => ({
+      ...prev,
+      accepting_states: [...prev.accepting_states, newFinalState2],
+    }));
+    setFeedback({ type: 'success', text: `Added state "${newFinalState2}" to DFA 2 final states.` });
+    setNewFinalState2('');
+  };
+
+  const handleDeleteFinalState2 = () => {
+    if (!delFinalState2) return;
+    setDfa2((prev) => ({
+      ...prev,
+      accepting_states: prev.accepting_states.filter((s) => s !== delFinalState2),
+    }));
+    setFeedback({ type: 'info', text: `Removed state "${delFinalState2}" from DFA 2 final states.` });
+    setDelFinalState2('');
   };
 
   const handleAddTransition2 = () => {
@@ -699,35 +861,15 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
     setDfa2((prev) => {
       const nextTrans = { ...prev.transitions };
       if (nextTrans[from]) {
-        delete nextTrans[from][sym];
+        const nextMap = { ...nextTrans[from] };
+        delete nextMap[sym];
+        nextTrans[from] = nextMap;
       }
       return { ...prev, transitions: nextTrans };
     });
+    setFeedback({ type: 'info', text: `Deleted transition δ2(${from}, ${sym}) in DFA 2.` });
     setSelectedDeleteTrans2('');
   };
-
-  // Compile list of transitions for delete dropdowns
-  const dfa1TransitionList = useMemo(() => {
-    const list: Array<{ from: string; symbol: string; dest: string }> = [];
-    dfa1.states.forEach((s) => {
-      dfa1.alphabet.forEach((sym) => {
-        const d = dfa1.transitions[s]?.[sym]?.[0];
-        if (d) list.push({ from: s, symbol: sym, dest: d });
-      });
-    });
-    return list;
-  }, [dfa1]);
-
-  const dfa2TransitionList = useMemo(() => {
-    const list: Array<{ from: string; symbol: string; dest: string }> = [];
-    dfa2.states.forEach((s) => {
-      dfa2.alphabet.forEach((sym) => {
-        const d = dfa2.transitions[s]?.[sym]?.[0];
-        if (d) list.push({ from: s, symbol: sym, dest: d });
-      });
-    });
-    return list;
-  }, [dfa2]);
 
   return (
     <div className="flex flex-col gap-6 p-4 sm:p-6 bg-slate-950 text-slate-100 max-w-[1700px] mx-auto min-h-screen">
@@ -767,6 +909,16 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
               ))}
             </select>
           </div>
+
+          <label className="flex items-center gap-1.5 cursor-pointer bg-slate-950 px-2.5 py-1.5 rounded-xl border border-slate-800 text-xs text-slate-300 hover:border-slate-700 transition">
+            <input
+              type="checkbox"
+              checked={autoCompleteDeadState}
+              onChange={(e) => setAutoCompleteDeadState(e.target.checked)}
+              className="rounded bg-slate-900 border-slate-700 text-cyan-500 focus:ring-0 w-3.5 h-3.5 cursor-pointer"
+            />
+            <span className="font-semibold text-cyan-400 text-[11px]">Auto-Dead State (∅)</span>
+          </label>
 
           <button
             onClick={() => handleLoadPreset(selectedPresetKey)}
@@ -815,9 +967,18 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
               <span className="w-3 h-3 rounded-full bg-cyan-400" />
               <span>DFA 1 Definition & Controls</span>
             </h3>
-            <span className="text-[11px] font-mono text-cyan-300">
-              {dfa1.states.length} states · Σ: {'{' + dfa1.alphabet.join(', ') + '}'}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-mono text-cyan-300">
+                {dfa1.states.length} states · Σ: {'{' + dfa1.alphabet.join(', ') + '}'}
+              </span>
+              <button
+                type="button"
+                onClick={handleResetDfa1}
+                className="text-[10px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-950 border border-slate-800 hover:border-slate-700 transition"
+              >
+                Reset
+              </button>
+            </div>
           </div>
 
           {/* DFA 1 Controls Grid */}
@@ -828,14 +989,15 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
               <div className="flex gap-1.5">
                 <input
                   type="text"
-                  placeholder="e.g. q2"
+                  placeholder="State name (e.g. q2)"
                   value={newState1}
                   onChange={(e) => setNewState1(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-slate-200 outline-none focus:border-cyan-500 w-full font-mono"
+                  className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-slate-200 outline-none focus:border-cyan-500 w-full font-mono text-xs"
                 />
                 <button
+                  type="button"
                   onClick={handleAddState1}
-                  className="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 rounded font-semibold text-white"
+                  className="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 rounded font-semibold text-white text-xs"
                 >
                   Add
                 </button>
@@ -849,7 +1011,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
                 <select
                   value=""
                   onChange={(e) => handleDeleteState1(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 outline-none w-full font-mono"
+                  className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 outline-none w-full font-mono text-xs"
                 >
                   <option value="">- Select -</option>
                   {dfa1.states.map((s) => (
@@ -861,18 +1023,19 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
 
             {/* Add Symbol */}
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-semibold text-slate-400">Add Symbol</label>
+              <label className="text-[11px] font-semibold text-slate-400">Add Alphabet Symbol</label>
               <div className="flex gap-1.5">
                 <input
                   type="text"
-                  placeholder="e.g. 0, 1, a"
+                  placeholder="Symbol (e.g. 0, 1, a)"
                   value={newSym1}
                   onChange={(e) => setNewSym1(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-slate-200 outline-none focus:border-cyan-500 w-full font-mono"
+                  className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-slate-200 outline-none focus:border-cyan-500 w-full font-mono text-xs"
                 />
                 <button
+                  type="button"
                   onClick={handleAddSymbol1}
-                  className="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 rounded font-semibold text-white"
+                  className="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 rounded font-semibold text-white text-xs"
                 >
                   Add
                 </button>
@@ -886,7 +1049,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
                 <select
                   value=""
                   onChange={(e) => handleDeleteSymbol1(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 outline-none w-full font-mono"
+                  className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 outline-none w-full font-mono text-xs"
                 >
                   <option value="">- Select -</option>
                   {dfa1.alphabet.map((sym) => (
@@ -898,11 +1061,11 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
 
             {/* Start State */}
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-semibold text-slate-400">Start State (q₀)</label>
+              <label className="text-[11px] font-semibold text-slate-400">Start State (q₀₁)</label>
               <select
                 value={dfa1.initial_state}
                 onChange={(e) => setDfa1((prev) => ({ ...prev, initial_state: e.target.value }))}
-                className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-emerald-400 font-bold outline-none"
+                className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-emerald-400 font-bold outline-none text-xs"
               >
                 {dfa1.states.map((s) => (
                   <option key={s} value={s}>{s}</option>
@@ -910,33 +1073,56 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
               </select>
             </div>
 
-            {/* Final State Toggle */}
+            {/* Add Final State */}
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-semibold text-slate-400">Toggle Final State</label>
-              <select
-                value=""
-                onChange={(e) => {
-                  const s = e.target.value;
-                  if (!s) return;
-                  setDfa1((prev) => {
-                    const exists = prev.accepting_states.includes(s);
-                    return {
-                      ...prev,
-                      accepting_states: exists
-                        ? prev.accepting_states.filter((x) => x !== s)
-                        : [...prev.accepting_states, s],
-                    };
-                  });
-                }}
-                className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 outline-none font-mono"
-              >
-                <option value="">- Toggle Final State -</option>
-                {dfa1.states.map((s) => (
-                  <option key={s} value={s}>
-                    {s} {dfa1.accepting_states.includes(s) ? '★ (Final)' : '(Non-final)'}
-                  </option>
-                ))}
-              </select>
+              <label className="text-[11px] font-semibold text-slate-400">Add Final State</label>
+              <div className="flex gap-1.5">
+                <select
+                  value={newFinalState1}
+                  onChange={(e) => setNewFinalState1(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 outline-none w-full font-mono text-xs"
+                >
+                  <option value="">- Select -</option>
+                  {dfa1.states
+                    .filter((s) => !dfa1.accepting_states.includes(s))
+                    .map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleAddFinalState1}
+                  disabled={!newFinalState1}
+                  className="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded font-semibold text-xs disabled:opacity-40"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+
+            {/* Delete Final State */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-400">Delete Final State</label>
+              <div className="flex gap-1.5">
+                <select
+                  value={delFinalState1}
+                  onChange={(e) => setDelFinalState1(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 outline-none w-full font-mono text-xs"
+                >
+                  <option value="">- Select -</option>
+                  {dfa1.accepting_states.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleDeleteFinalState1}
+                  disabled={!delFinalState1}
+                  className="px-3 py-1 bg-rose-600/30 hover:bg-rose-600/50 border border-rose-500/40 text-rose-200 rounded font-semibold text-xs disabled:opacity-40"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           </div>
 
@@ -975,10 +1161,40 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
                 ))}
               </select>
               <button
+                type="button"
                 onClick={handleAddTransition1}
                 className="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded font-bold text-xs"
               >
                 Add
+              </button>
+            </div>
+          </div>
+
+          {/* Delete Transition Form */}
+          <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
+            <span className="text-[11px] font-semibold text-slate-400">
+              Delete Transition
+            </span>
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedDeleteTrans1}
+                onChange={(e) => setSelectedDeleteTrans1(e.target.value)}
+                className="bg-slate-900 border border-slate-750 rounded px-2 py-1 text-xs text-slate-200 font-mono w-full"
+              >
+                <option value="">- Select Transition to Delete -</option>
+                {dfa1TransitionList.map((t) => (
+                  <option key={`${t.from}::${t.symbol}`} value={`${t.from}::${t.symbol}`}>
+                    δ₁({t.from}, {t.symbol}) = {t.dest}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleDeleteTransition1}
+                disabled={!selectedDeleteTrans1}
+                className="px-3 py-1 bg-rose-600/30 hover:bg-rose-600/50 border border-rose-500/40 text-rose-200 rounded font-semibold text-xs disabled:opacity-40"
+              >
+                Delete
               </button>
             </div>
           </div>
@@ -994,8 +1210,17 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
                 <p>q₀₁ = {dfa1.initial_state || '∅'}</p>
                 <p>F₁ = {'{' + (dfa1.accepting_states.join(', ') || '∅') + '}'}</p>
               </div>
-              <div className="text-[10px] text-slate-500 mt-2">
-                Transitions defined: {dfa1TransitionList.length}
+              <div className="text-[10px] flex items-center justify-between mt-2 pt-1 border-t border-slate-800">
+                <span className="text-slate-400">
+                  Transitions: {dfa1TransitionList.length} / {dfa1RequiredTrans}
+                </span>
+                {isDfa1Complete ? (
+                  <span className="text-emerald-400 font-semibold">Total Function ✓</span>
+                ) : (
+                  <span className="text-amber-400 font-semibold">
+                    Incomplete ({dfa1RequiredTrans - dfa1TransitionList.length} missing)
+                  </span>
+                )}
               </div>
             </div>
 
@@ -1018,11 +1243,19 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
                         {dfa1.accepting_states.includes(s) && <span className="text-red-400 mr-0.5">*</span>}
                         {s}
                       </td>
-                      {dfa1.alphabet.map((sym) => (
-                        <td key={sym} className="py-1 px-2.5 text-center text-cyan-300">
-                          {dfa1.transitions[s]?.[sym]?.[0] || '∅'}
-                        </td>
-                      ))}
+                      {dfa1.alphabet.map((sym) => {
+                        const dest = dfa1.transitions[s]?.[sym]?.[0];
+                        return (
+                          <td
+                            key={sym}
+                            className={`py-1 px-2.5 text-center ${
+                              dest ? 'text-cyan-300 font-bold' : 'text-amber-400/80 italic font-normal'
+                            }`}
+                          >
+                            {dest || '—'}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
@@ -1038,9 +1271,18 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
               <span className="w-3 h-3 rounded-full bg-purple-400" />
               <span>DFA 2 Definition & Controls</span>
             </h3>
-            <span className="text-[11px] font-mono text-purple-300">
-              {dfa2.states.length} states · Σ: {'{' + dfa2.alphabet.join(', ') + '}'}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-mono text-purple-300">
+                {dfa2.states.length} states · Σ: {'{' + dfa2.alphabet.join(', ') + '}'}
+              </span>
+              <button
+                type="button"
+                onClick={handleResetDfa2}
+                className="text-[10px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-950 border border-slate-800 hover:border-slate-700 transition"
+              >
+                Reset
+              </button>
+            </div>
           </div>
 
           {/* DFA 2 Controls Grid */}
@@ -1051,14 +1293,15 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
               <div className="flex gap-1.5">
                 <input
                   type="text"
-                  placeholder="e.g. C"
+                  placeholder="State name (e.g. C)"
                   value={newState2}
                   onChange={(e) => setNewState2(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-slate-200 outline-none focus:border-purple-500 w-full font-mono"
+                  className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-slate-200 outline-none focus:border-purple-500 w-full font-mono text-xs"
                 />
                 <button
+                  type="button"
                   onClick={handleAddState2}
-                  className="px-3 py-1 bg-purple-600 hover:bg-purple-500 rounded font-semibold text-white"
+                  className="px-3 py-1 bg-purple-600 hover:bg-purple-500 rounded font-semibold text-white text-xs"
                 >
                   Add
                 </button>
@@ -1072,7 +1315,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
                 <select
                   value=""
                   onChange={(e) => handleDeleteState2(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 outline-none w-full font-mono"
+                  className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 outline-none w-full font-mono text-xs"
                 >
                   <option value="">- Select -</option>
                   {dfa2.states.map((s) => (
@@ -1084,18 +1327,19 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
 
             {/* Add Symbol */}
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-semibold text-slate-400">Add Symbol</label>
+              <label className="text-[11px] font-semibold text-slate-400">Add Alphabet Symbol</label>
               <div className="flex gap-1.5">
                 <input
                   type="text"
-                  placeholder="e.g. 0, 1, a"
+                  placeholder="Symbol (e.g. 0, 1, a)"
                   value={newSym2}
                   onChange={(e) => setNewSym2(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-slate-200 outline-none focus:border-purple-500 w-full font-mono"
+                  className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-slate-200 outline-none focus:border-purple-500 w-full font-mono text-xs"
                 />
                 <button
+                  type="button"
                   onClick={handleAddSymbol2}
-                  className="px-3 py-1 bg-purple-600 hover:bg-purple-500 rounded font-semibold text-white"
+                  className="px-3 py-1 bg-purple-600 hover:bg-purple-500 rounded font-semibold text-white text-xs"
                 >
                   Add
                 </button>
@@ -1109,7 +1353,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
                 <select
                   value=""
                   onChange={(e) => handleDeleteSymbol2(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 outline-none w-full font-mono"
+                  className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 outline-none w-full font-mono text-xs"
                 >
                   <option value="">- Select -</option>
                   {dfa2.alphabet.map((sym) => (
@@ -1125,7 +1369,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
               <select
                 value={dfa2.initial_state}
                 onChange={(e) => setDfa2((prev) => ({ ...prev, initial_state: e.target.value }))}
-                className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-purple-400 font-bold outline-none"
+                className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-purple-400 font-bold outline-none text-xs"
               >
                 {dfa2.states.map((s) => (
                   <option key={s} value={s}>{s}</option>
@@ -1133,33 +1377,56 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
               </select>
             </div>
 
-            {/* Final State Toggle */}
+            {/* Add Final State */}
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-semibold text-slate-400">Toggle Final State</label>
-              <select
-                value=""
-                onChange={(e) => {
-                  const s = e.target.value;
-                  if (!s) return;
-                  setDfa2((prev) => {
-                    const exists = prev.accepting_states.includes(s);
-                    return {
-                      ...prev,
-                      accepting_states: exists
-                        ? prev.accepting_states.filter((x) => x !== s)
-                        : [...prev.accepting_states, s],
-                    };
-                  });
-                }}
-                className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 outline-none font-mono"
-              >
-                <option value="">- Toggle Final State -</option>
-                {dfa2.states.map((s) => (
-                  <option key={s} value={s}>
-                    {s} {dfa2.accepting_states.includes(s) ? '★ (Final)' : '(Non-final)'}
-                  </option>
-                ))}
-              </select>
+              <label className="text-[11px] font-semibold text-slate-400">Add Final State</label>
+              <div className="flex gap-1.5">
+                <select
+                  value={newFinalState2}
+                  onChange={(e) => setNewFinalState2(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 outline-none w-full font-mono text-xs"
+                >
+                  <option value="">- Select -</option>
+                  {dfa2.states
+                    .filter((s) => !dfa2.accepting_states.includes(s))
+                    .map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleAddFinalState2}
+                  disabled={!newFinalState2}
+                  className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded font-semibold text-xs disabled:opacity-40"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+
+            {/* Delete Final State */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-400">Delete Final State</label>
+              <div className="flex gap-1.5">
+                <select
+                  value={delFinalState2}
+                  onChange={(e) => setDelFinalState2(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 outline-none w-full font-mono text-xs"
+                >
+                  <option value="">- Select -</option>
+                  {dfa2.accepting_states.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleDeleteFinalState2}
+                  disabled={!delFinalState2}
+                  className="px-3 py-1 bg-rose-600/30 hover:bg-rose-600/50 border border-rose-500/40 text-rose-200 rounded font-semibold text-xs disabled:opacity-40"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1198,10 +1465,40 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
                 ))}
               </select>
               <button
+                type="button"
                 onClick={handleAddTransition2}
                 className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded font-bold text-xs"
               >
                 Add
+              </button>
+            </div>
+          </div>
+
+          {/* Delete Transition Form */}
+          <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
+            <span className="text-[11px] font-semibold text-slate-400">
+              Delete Transition
+            </span>
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedDeleteTrans2}
+                onChange={(e) => setSelectedDeleteTrans2(e.target.value)}
+                className="bg-slate-900 border border-slate-750 rounded px-2 py-1 text-xs text-slate-200 font-mono w-full"
+              >
+                <option value="">- Select Transition to Delete -</option>
+                {dfa2TransitionList.map((t) => (
+                  <option key={`${t.from}::${t.symbol}`} value={`${t.from}::${t.symbol}`}>
+                    δ₂({t.from}, {t.symbol}) = {t.dest}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleDeleteTransition2}
+                disabled={!selectedDeleteTrans2}
+                className="px-3 py-1 bg-rose-600/30 hover:bg-rose-600/50 border border-rose-500/40 text-rose-200 rounded font-semibold text-xs disabled:opacity-40"
+              >
+                Delete
               </button>
             </div>
           </div>
@@ -1217,8 +1514,17 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
                 <p>q₀₂ = {dfa2.initial_state || '∅'}</p>
                 <p>F₂ = {'{' + (dfa2.accepting_states.join(', ') || '∅') + '}'}</p>
               </div>
-              <div className="text-[10px] text-slate-500 mt-2">
-                Transitions defined: {dfa2TransitionList.length}
+              <div className="text-[10px] flex items-center justify-between mt-2 pt-1 border-t border-slate-800">
+                <span className="text-slate-400">
+                  Transitions: {dfa2TransitionList.length} / {dfa2RequiredTrans}
+                </span>
+                {isDfa2Complete ? (
+                  <span className="text-emerald-400 font-semibold">Total Function ✓</span>
+                ) : (
+                  <span className="text-amber-400 font-semibold">
+                    Incomplete ({dfa2RequiredTrans - dfa2TransitionList.length} missing)
+                  </span>
+                )}
               </div>
             </div>
 
@@ -1241,11 +1547,19 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
                         {dfa2.accepting_states.includes(s) && <span className="text-red-400 mr-0.5">*</span>}
                         {s}
                       </td>
-                      {dfa2.alphabet.map((sym) => (
-                        <td key={sym} className="py-1 px-2.5 text-center text-purple-300">
-                          {dfa2.transitions[s]?.[sym]?.[0] || '∅'}
-                        </td>
-                      ))}
+                      {dfa2.alphabet.map((sym) => {
+                        const dest = dfa2.transitions[s]?.[sym]?.[0];
+                        return (
+                          <td
+                            key={sym}
+                            className={`py-1 px-2.5 text-center ${
+                              dest ? 'text-purple-300 font-bold' : 'text-amber-400/80 italic font-normal'
+                            }`}
+                          >
+                            {dest || '—'}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
@@ -1258,42 +1572,18 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
       {/* ROW 2: EQUIVALENCE VERDICT & CROSS-PRODUCT STATE-PAIRING TABLE */}
       <div className="flex flex-col gap-4">
         {/* Giant Status Verdict Banner */}
-        <div
-          className={`p-6 rounded-2xl border shadow-2xl flex flex-col md:flex-row items-center justify-between gap-5 transition-all ${
-            equivalenceResult.isEquivalent
-              ? 'bg-gradient-to-r from-emerald-950/40 via-slate-900 to-emerald-950/30 border-emerald-800 text-emerald-100'
-              : 'bg-gradient-to-r from-rose-950/40 via-slate-900 to-rose-950/30 border-rose-800 text-rose-100'
-          }`}
-        >
-          <div className="flex items-center gap-4">
-            <div
-              className={`p-3.5 rounded-2xl ${
-                equivalenceResult.isEquivalent
-                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-lg shadow-emerald-500/20'
-                  : 'bg-rose-500/20 text-rose-400 border border-rose-500/40 shadow-lg shadow-rose-500/20'
-              }`}
-            >
-              {equivalenceResult.isEquivalent ? (
-                <CheckCircle2 className="w-10 h-10" />
-              ) : (
-                <XCircle className="w-10 h-10" />
-              )}
+        {!equivalenceResult.isReady ? (
+          <div className="p-6 rounded-2xl border shadow-2xl flex flex-col md:flex-row items-center gap-5 bg-gradient-to-r from-amber-950/40 via-slate-900 to-amber-950/20 border-amber-800/80 text-amber-100">
+            <div className="p-3.5 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-lg shadow-amber-500/20">
+              <AlertTriangle className="w-10 h-10" />
             </div>
             <div>
               <div className="flex items-center gap-2.5">
-                <h3 className="text-xl font-black tracking-tight">
-                  {equivalenceResult.isEquivalent
-                    ? 'DFAs ARE MATHEMATICALLY EQUIVALENT'
-                    : 'DFAs ARE NOT EQUIVALENT'}
+                <h3 className="text-xl font-black tracking-tight text-amber-200">
+                  AWAITING DFA CONFIGURATION
                 </h3>
-                <span
-                  className={`text-xs px-2.5 py-0.5 rounded-full font-mono font-bold ${
-                    equivalenceResult.isEquivalent
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                      : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                  }`}
-                >
-                  {equivalenceResult.isEquivalent ? 'L(DFA 1) ≡ L(DFA 2)' : 'L(DFA 1) ≢ L(DFA 2)'}
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  Setup Incomplete
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-1 max-w-3xl leading-relaxed">
@@ -1301,24 +1591,69 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
               </p>
             </div>
           </div>
-
-          {/* Distinguishing Counterexample Pill */}
-          {!equivalenceResult.isEquivalent && (
-            <div className="flex flex-col items-end gap-1.5 bg-slate-950/90 border border-rose-700/60 p-3.5 rounded-xl text-right">
-              <span className="text-[10px] font-semibold uppercase text-rose-400 tracking-wider">
-                Shortest Distinguishing Counterexample:
-              </span>
-              <span className="font-mono text-base font-bold text-white bg-rose-950/80 px-3 py-1 rounded border border-rose-600/80">
-                {equivalenceResult.counterexample === '' ? 'ε (empty string)' : `"${equivalenceResult.counterexample}"`}
-              </span>
-              {equivalenceResult.distinguishingPair && (
-                <span className="text-[11px] font-mono text-slate-400">
-                  Distinguishing Pair: ({equivalenceResult.distinguishingPair[0]}, {equivalenceResult.distinguishingPair[1]})
-                </span>
-              )}
+        ) : (
+          <div
+            className={`p-6 rounded-2xl border shadow-2xl flex flex-col md:flex-row items-center justify-between gap-5 transition-all ${
+              equivalenceResult.isEquivalent
+                ? 'bg-gradient-to-r from-emerald-950/40 via-slate-900 to-emerald-950/30 border-emerald-800 text-emerald-100'
+                : 'bg-gradient-to-r from-rose-950/40 via-slate-900 to-rose-950/30 border-rose-800 text-rose-100'
+            }`}
+          >
+            <div className="flex items-center gap-4">
+              <div
+                className={`p-3.5 rounded-2xl ${
+                  equivalenceResult.isEquivalent
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-lg shadow-emerald-500/20'
+                    : 'bg-rose-500/20 text-rose-400 border border-rose-500/40 shadow-lg shadow-rose-500/20'
+                }`}
+              >
+                {equivalenceResult.isEquivalent ? (
+                  <CheckCircle2 className="w-10 h-10" />
+                ) : (
+                  <XCircle className="w-10 h-10" />
+                )}
+              </div>
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <h3 className="text-xl font-black tracking-tight">
+                    {equivalenceResult.isEquivalent
+                      ? 'DFAs ARE MATHEMATICALLY EQUIVALENT'
+                      : 'DFAs ARE NOT EQUIVALENT'}
+                  </h3>
+                  <span
+                    className={`text-xs px-2.5 py-0.5 rounded-full font-mono font-bold ${
+                      equivalenceResult.isEquivalent
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                    }`}
+                  >
+                    {equivalenceResult.isEquivalent ? 'L(DFA 1) ≡ L(DFA 2)' : 'L(DFA 1) ≢ L(DFA 2)'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 mt-1 max-w-3xl leading-relaxed">
+                  {equivalenceResult.explanation}
+                </p>
+              </div>
             </div>
-          )}
-        </div>
+
+            {/* Distinguishing Counterexample Pill */}
+            {!equivalenceResult.isEquivalent && (
+              <div className="flex flex-col items-end gap-1.5 bg-slate-950/90 border border-rose-700/60 p-3.5 rounded-xl text-right">
+                <span className="text-[10px] font-semibold uppercase text-rose-400 tracking-wider">
+                  Shortest Distinguishing Counterexample:
+                </span>
+                <span className="font-mono text-base font-bold text-white bg-rose-950/80 px-3 py-1 rounded border border-rose-600/80">
+                  {equivalenceResult.counterexample === '' ? 'ε (empty string)' : `"${equivalenceResult.counterexample}"`}
+                </span>
+                {equivalenceResult.distinguishingPair && (
+                  <span className="text-[11px] font-mono text-slate-400">
+                    Distinguishing Pair: ({equivalenceResult.distinguishingPair[0]}, {equivalenceResult.distinguishingPair[1]})
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* INTERACTIVE STATE-PAIRING CROSS-PRODUCT TABLE */}
         <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col gap-3">
@@ -1332,98 +1667,110 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
                 Traces each pair (p, q) ∈ Q₁ × Q₂ starting at (q₀₁, q₀₂). If any reachable pair has one accepting state and one non-accepting state, equivalence fails.
               </p>
             </div>
-            <div className="flex items-center gap-2 text-xs font-mono">
-              <span className="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-cyan-300">
-                {equivalenceResult.uniquePairsDiscovered.length} Unique Pairs Explored
-              </span>
-              <span className="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-purple-300">
-                {equivalenceResult.pairingSteps.length} Transition Evaluations
-              </span>
-            </div>
+            {equivalenceResult.isReady && (
+              <div className="flex items-center gap-2 text-xs font-mono">
+                <span className="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-cyan-300">
+                  {equivalenceResult.uniquePairsDiscovered.length} Unique Pairs Explored
+                </span>
+                <span className="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-purple-300">
+                  {equivalenceResult.pairingSteps.length} Transition Evaluations
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Table Container */}
-          <div className="overflow-x-auto border border-slate-800 rounded-xl bg-slate-950/90 max-h-96">
-            <table className="w-full text-left text-xs font-mono">
-              <thead className="bg-slate-900/90 border-b border-slate-800 text-slate-400 sticky top-0 backdrop-blur z-10">
-                <tr>
-                  <th className="py-2 px-3 text-center w-12">#</th>
-                  <th className="py-2 px-3">Current Pair (p, q)</th>
-                  <th className="py-2 px-3">Pair State Types</th>
-                  <th className="py-2 px-3 text-center">Symbol (a)</th>
-                  <th className="py-2 px-3">Next Pair (δ₁(p,a), δ₂(q,a))</th>
-                  <th className="py-2 px-3 text-center">Match Status</th>
-                  <th className="py-2 px-3">Evaluation Action / Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 text-slate-200">
-                {equivalenceResult.pairingSteps.map((step) => {
-                  const isDistinguishing = step.nextPairStatus === 'mismatch';
-                  const isHovered =
-                    highlightedPair &&
-                    highlightedPair[0] === step.currentPair[0] &&
-                    highlightedPair[1] === step.currentPair[1];
+          {!equivalenceResult.isReady ? (
+            <div className="p-8 text-center bg-slate-950/80 rounded-xl border border-slate-800 flex flex-col items-center gap-2">
+              <AlertTriangle className="w-8 h-8 text-amber-400" />
+              <h4 className="font-bold text-slate-200 text-sm">{equivalenceResult.explanation}</h4>
+              <p className="text-xs text-slate-400 max-w-md">
+                Configure both DFAs using the controls above. Once transitions and final states are defined, the Cartesian cross-product evaluation table will automatically compute.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto border border-slate-800 rounded-xl bg-slate-950/90 max-h-96">
+              <table className="w-full text-left text-xs font-mono">
+                <thead className="bg-slate-900/90 border-b border-slate-800 text-slate-400 sticky top-0 backdrop-blur z-10">
+                  <tr>
+                    <th className="py-2 px-3 text-center w-12">#</th>
+                    <th className="py-2 px-3">Current Pair (p, q)</th>
+                    <th className="py-2 px-3">Pair State Types</th>
+                    <th className="py-2 px-3 text-center">Symbol (a)</th>
+                    <th className="py-2 px-3">Next Pair (δ₁(p,a), δ₂(q,a))</th>
+                    <th className="py-2 px-3 text-center">Match Status</th>
+                    <th className="py-2 px-3">Evaluation Action / Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 text-slate-200">
+                  {equivalenceResult.pairingSteps.map((step) => {
+                    const isDistinguishing = step.nextPairStatus === 'mismatch';
+                    const isHovered =
+                      highlightedPair &&
+                      highlightedPair[0] === step.currentPair[0] &&
+                      highlightedPair[1] === step.currentPair[1];
 
-                  return (
-                    <tr
-                      key={step.step}
-                      onMouseEnter={() => setHighlightedPair(step.currentPair)}
-                      onMouseLeave={() => setHighlightedPair(null)}
-                      className={`transition-colors cursor-pointer ${
-                        isDistinguishing
-                          ? 'bg-rose-950/40 hover:bg-rose-900/40'
-                          : isHovered
-                          ? 'bg-cyan-950/40'
-                          : 'hover:bg-slate-900/60'
-                      }`}
-                    >
-                      <td className="py-2 px-3 text-center text-slate-500 font-bold">{step.step}</td>
-                      <td className="py-2 px-3 font-bold text-white">
-                        <span className="text-cyan-300 font-bold">{step.currentPairLabel}</span>
-                      </td>
-                      <td className="py-2 px-3 text-[11px]">
-                        <span className={step.isFinal1 ? 'text-red-400 font-bold' : 'text-slate-400'}>
-                          p:{step.isFinal1 ? 'Final' : 'Non-final'}
-                        </span>
-                        <span className="text-slate-600 mx-1">|</span>
-                        <span className={step.isFinal2 ? 'text-red-400 font-bold' : 'text-slate-400'}>
-                          q:{step.isFinal2 ? 'Final' : 'Non-final'}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 text-center">
-                        <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-750 text-cyan-400 font-bold">
-                          {step.symbol}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 font-bold">
-                        <span className={isDistinguishing ? 'text-rose-400' : 'text-purple-300'}>
-                          {step.nextPairLabel}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 text-center">
-                        {step.nextPairStatus === 'both_final' ? (
-                          <span className="px-2 py-0.5 rounded bg-emerald-950/70 border border-emerald-800 text-emerald-300 text-[10px] font-sans font-semibold">
-                            Both Final (Match ✓)
+                    return (
+                      <tr
+                        key={step.step}
+                        onMouseEnter={() => setHighlightedPair(step.currentPair)}
+                        onMouseLeave={() => setHighlightedPair(null)}
+                        className={`transition-colors cursor-pointer ${
+                          isDistinguishing
+                            ? 'bg-rose-950/40 hover:bg-rose-900/40'
+                            : isHovered
+                            ? 'bg-cyan-950/40'
+                            : 'hover:bg-slate-900/60'
+                        }`}
+                      >
+                        <td className="py-2 px-3 text-center text-slate-500 font-bold">{step.step}</td>
+                        <td className="py-2 px-3 font-bold text-white">
+                          <span className="text-cyan-300 font-bold">{step.currentPairLabel}</span>
+                        </td>
+                        <td className="py-2 px-3 text-[11px]">
+                          <span className={step.isFinal1 ? 'text-red-400 font-bold' : 'text-slate-400'}>
+                            p:{step.isFinal1 ? 'Final' : 'Non-final'}
                           </span>
-                        ) : step.nextPairStatus === 'both_non_final' ? (
-                          <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-750 text-slate-300 text-[10px] font-sans">
-                            Both Non-Final (Match ✓)
+                          <span className="text-slate-600 mx-1">|</span>
+                          <span className={step.isFinal2 ? 'text-red-400 font-bold' : 'text-slate-400'}>
+                            q:{step.isFinal2 ? 'Final' : 'Non-final'}
                           </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded bg-rose-950 border border-rose-700 text-rose-300 text-[10px] font-sans font-bold animate-pulse">
-                            MISMATCH ✗
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-750 text-cyan-400 font-bold">
+                            {step.symbol}
                           </span>
-                        )}
-                      </td>
-                      <td className="py-2 px-3 text-[11px] text-slate-400 font-sans">
-                        {step.note}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </td>
+                        <td className="py-2 px-3 font-bold">
+                          <span className={isDistinguishing ? 'text-rose-400' : 'text-purple-300'}>
+                            {step.nextPairLabel}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {step.nextPairStatus === 'both_final' ? (
+                            <span className="px-2 py-0.5 rounded bg-emerald-950/70 border border-emerald-800 text-emerald-300 text-[10px] font-sans font-semibold">
+                              Both Final (Match ✓)
+                            </span>
+                          ) : step.nextPairStatus === 'both_non_final' ? (
+                            <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-750 text-slate-300 text-[10px] font-sans">
+                              Both Non-Final (Match ✓)
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded bg-rose-950 border border-rose-700 text-rose-300 text-[10px] font-sans font-bold animate-pulse">
+                              MISMATCH ✗
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-[11px] text-slate-400 font-sans">
+                          {step.note}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* STRING SIMULATOR TEST BAR */}
@@ -1448,6 +1795,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
             />
             {equivalenceResult.counterexample && (
               <button
+                type="button"
                 onClick={() => setTestString(equivalenceResult.counterexample || '')}
                 className="px-2.5 py-1 bg-rose-950/60 hover:bg-rose-900/60 border border-rose-800 text-rose-300 rounded text-xs font-mono transition"
               >
