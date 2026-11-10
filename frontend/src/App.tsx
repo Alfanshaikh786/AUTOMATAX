@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { AutomatonModel, ConversionResponse } from './types/automata';
+import { AutomatonModel } from './types/automata';
 import { api } from './services/api';
 import { AutomataCanvas } from './components/graph/AutomataCanvas';
 import { TransitionTable } from './components/tables/TransitionTable';
-import { StepPlayer } from './components/conversion/StepPlayer';
-import { ConversionLabView } from './components/conversion/ConversionLabView';
 import { SimulationPane } from './components/simulator/SimulationPane';
 import { EquivalenceView } from './components/equivalence/EquivalenceView';
 import { DualAutomataStudio } from './components/studio/DualAutomataStudio';
@@ -12,8 +10,8 @@ import { AIGeneratorModal } from './components/ai/AIGeneratorModal';
 import { ExportModal } from './components/reports/ExportModal';
 
 import {
-  Layers, Play, CheckCircle2, GitCompare, Download, Plus,
-  Save, RotateCcw, HelpCircle, Cpu, Compass, Workflow, GitFork, Sparkles
+  Play, GitCompare, Download,
+  Save, Cpu, Workflow, GitFork, Sparkles
 } from 'lucide-react';
 
 const DEFAULT_AUTOMATON: AutomatonModel = {
@@ -36,13 +34,10 @@ export function App() {
   const [activeTab, setActiveTab] = useState<string>('builder');
   const [currentAutomaton, setCurrentAutomaton] = useState<AutomatonModel>(DEFAULT_AUTOMATON);
   const [availableAutomata, setAvailableAutomata] = useState<AutomatonModel[]>([DEFAULT_AUTOMATON]);
-  const [conversion, setConversion] = useState<ConversionResponse | null>(null);
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [highlightStates, setHighlightStates] = useState<string[]>([]);
   const [highlightTransitions, setHighlightTransitions] = useState<Array<{ from: string; to: string; symbol: string }>>([]);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     // Load pre-seeded benchmark automata from backend
@@ -63,43 +58,6 @@ export function App() {
     } catch (e: any) {
       alert(`Save Error: ${e.message}`);
     }
-  };
-
-  const handleConversion = async (type: 'enfa-to-nfa' | 'to-dfa' | 'minimize' | 'dfa-to-nfa' | 'to-enfa') => {
-    try {
-      setLoading(true);
-      let res: ConversionResponse;
-      if (type === 'enfa-to-nfa') {
-        res = await api.convertEnfaToNfa(currentAutomaton);
-      } else if (type === 'to-dfa') {
-        res = await api.convertToDfa(currentAutomaton);
-      } else if (type === 'dfa-to-nfa') {
-        res = await api.convertDfaToNfa(currentAutomaton);
-      } else if (type === 'to-enfa') {
-        res = await api.convertToEnfa(currentAutomaton);
-      } else {
-        res = await api.minimizeDfa(currentAutomaton);
-      }
-      setConversion(res);
-      setCurrentStepIndex(0);
-      setActiveTab('conversion');
-      if (res.steps.length > 0) {
-        setHighlightStates(res.steps[0].highlight_states || []);
-        setHighlightTransitions(res.steps[0].highlight_transitions || []);
-      }
-    } catch (e: any) {
-      alert(`Conversion Error: ${e.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleStepChange = (idx: number) => {
-    if (!conversion || !conversion.steps[idx]) return;
-    setCurrentStepIndex(idx);
-    const step = conversion.steps[idx];
-    setHighlightStates(step.highlight_states || []);
-    setHighlightTransitions(step.highlight_transitions || []);
   };
 
   const navItems = [
@@ -206,79 +164,36 @@ export function App() {
             </select>
           </div>
 
-          {/* Quick Conversion Triggers */}
+          {/* Quick Studio Triggers */}
           <div className="flex items-center gap-2">
-            {currentAutomaton.type === 'DFA' && (
-              <>
-                <button
-                  onClick={() => handleConversion('dfa-to-nfa')}
-                  disabled={loading}
-                  className="px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 rounded text-xs font-semibold text-purple-200 transition"
-                  title="Every DFA is a special case of an NFA with singleton destination sets"
-                >
-                  Convert to NFA
-                </button>
-                <button
-                  onClick={() => handleConversion('to-enfa')}
-                  disabled={loading}
-                  className="px-2.5 py-1 bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 rounded text-xs font-semibold text-indigo-200 transition"
-                  title="Embed DFA into ε-NFA format with empty ε-transitions"
-                >
-                  Convert to ε-NFA
-                </button>
-              </>
-            )}
-
             {currentAutomaton.type === 'NFA' && (
-              <>
-                <button
-                  onClick={() => handleConversion('to-dfa')}
-                  disabled={loading}
-                  className="px-2.5 py-1 bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 rounded text-xs font-semibold text-cyan-200 transition"
-                  title="Construct deterministic automaton via subset construction"
-                >
-                  Subset Construction (→ DFA)
-                </button>
-                <button
-                  onClick={() => handleConversion('to-enfa')}
-                  disabled={loading}
-                  className="px-2.5 py-1 bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 rounded text-xs font-semibold text-indigo-200 transition"
-                  title="Embed NFA into ε-NFA format"
-                >
-                  Convert to ε-NFA
-                </button>
-              </>
+              <button
+                onClick={() => setActiveTab('dual-studio')}
+                className="px-2.5 py-1 bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 rounded text-xs font-semibold text-cyan-200 transition"
+                title="Open Dual NFA Studio (Subset Construction to DFA)"
+              >
+                Dual NFA Studio (→ DFA)
+              </button>
             )}
 
             {currentAutomaton.type === 'ENFA' && (
               <>
                 <button
-                  onClick={() => handleConversion('enfa-to-nfa')}
-                  disabled={loading}
+                  onClick={() => setActiveTab('dual-enfa-to-nfa')}
                   className="px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 rounded text-xs font-semibold text-purple-200 transition"
-                  title="Eliminate ε-transitions by computing closures"
+                  title="Eliminate ε-transitions in Dual ε-NFA Studio"
                 >
-                  ε-Elimination (ε-NFA → NFA)
+                  Dual ε-NFA Studio (→ NFA)
                 </button>
                 <button
-                  onClick={() => handleConversion('to-dfa')}
-                  disabled={loading}
+                  onClick={() => setActiveTab('dual-enfa-studio')}
                   className="px-2.5 py-1 bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 rounded text-xs font-semibold text-cyan-200 transition"
-                  title="Epsilon-aware subset construction"
+                  title="Direct ε-NFA to DFA in Dual ε-NFA Studio"
                 >
-                  Convert to DFA
+                  Dual ε-NFA Studio (→ DFA)
                 </button>
               </>
             )}
-
-            <button
-              onClick={() => handleConversion('minimize')}
-              disabled={loading}
-              className="px-2.5 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/40 rounded text-xs font-semibold text-emerald-200 transition"
-              title="Hopcroft DFA partition refinement minimization"
-            >
-              Hopcroft Minimization
-            </button>
 
             <button
               onClick={handleSave}
@@ -379,25 +294,6 @@ export function App() {
                 setCurrentAutomaton(aut);
                 setActiveTab('builder');
               }}
-            />
-          )}
-
-          {activeTab === 'conversion' && (
-            <ConversionLabView
-              currentAutomaton={currentAutomaton}
-              availableAutomata={availableAutomata}
-              onLoadIntoBuilder={(aut) => {
-                setCurrentAutomaton(aut);
-                setActiveTab('builder');
-              }}
-              conversion={conversion}
-              setConversion={setConversion}
-              currentStepIndex={currentStepIndex}
-              setCurrentStepIndex={setCurrentStepIndex}
-              highlightStates={highlightStates}
-              setHighlightStates={setHighlightStates}
-              highlightTransitions={highlightTransitions}
-              setHighlightTransitions={setHighlightTransitions}
             />
           )}
 
