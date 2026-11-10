@@ -7,7 +7,6 @@ import {
   XCircle,
   Play,
   RotateCcw,
-  ArrowRight,
   ExternalLink,
   ShieldCheck,
   AlertTriangle,
@@ -21,22 +20,26 @@ interface EquivalenceViewProps {
   onLoadAutomaton?: (aut: AutomatonModel) => void;
 }
 
-export interface PairingStep {
-  step: number;
-  currentPair: [string, string];
-  currentPairLabel: string;
-  isFinal1: boolean;
-  isFinal2: boolean;
-  pairStatus: 'both_final' | 'both_non_final' | 'mismatch';
-  symbol: string;
-  nextPair: [string, string];
-  nextPairLabel: string;
-  nextIsFinal1: boolean;
-  nextIsFinal2: boolean;
-  nextPairStatus: 'both_final' | 'both_non_final' | 'mismatch';
-  isNewDiscovery: boolean;
-  path: string;
-  note: string;
+export interface MatrixRow {
+  rowNumber: number;
+  pair: [string, string];
+  pairLabel: string;
+  isInitial: boolean;
+  pairType1: 'FS' | 'IS';
+  pairType2: 'FS' | 'IS';
+  isMatch: boolean;
+  transitions: Record<
+    string,
+    {
+      nextPair: [string, string];
+      nextPairLabel: string;
+      nextType1: 'FS' | 'IS';
+      nextType2: 'FS' | 'IS';
+      isMatch: boolean;
+      isNew: boolean;
+      isDead: boolean;
+    }
+  >;
 }
 
 // Preset Academic Examples for DFA Equivalence
@@ -50,6 +53,42 @@ const PRESET_EQUIVALENCE_SAMPLES: Record<
     dfa2: AutomatonModel;
   }
 > = {
+  sample_notebook: {
+    name: 'Textbook Example: 3-State vs 4-State Equivalent DFAs (Notebook)',
+    description: 'Exact example from classroom TOC notes. DFA 1 has 3 states with q0 (start & final). DFA 2 has 4 states with q3 (start & final). Both accept identical languages.',
+    expected: 'EQUIVALENT',
+    dfa1: {
+      id: 'eq_dfa1_notebook',
+      name: 'DFA 1 (3-State with q₀ Final)',
+      type: 'DFA',
+      states: ['q0', 'q1', 'q2'],
+      alphabet: ['a', 'b'],
+      initial_state: 'q0',
+      accepting_states: ['q0'],
+      transitions: {
+        q0: { 'a': ['q0'], 'b': ['q1'] },
+        q1: { 'a': ['q2'], 'b': ['q0'] },
+        q2: { 'a': ['q1'], 'b': ['q2'] },
+      },
+      epsilon_transitions: {},
+    },
+    dfa2: {
+      id: 'eq_dfa2_notebook',
+      name: 'DFA 2 (4-State with q₃ Final)',
+      type: 'DFA',
+      states: ['q3', 'q4', 'q5', 'q6'],
+      alphabet: ['a', 'b'],
+      initial_state: 'q3',
+      accepting_states: ['q3'],
+      transitions: {
+        q3: { 'a': ['q3'], 'b': ['q4'] },
+        q4: { 'a': ['q5'], 'b': ['q3'] },
+        q5: { 'a': ['q6'], 'b': ['q5'] },
+        q6: { 'a': ['q5'], 'b': ['q3'] },
+      },
+      epsilon_transitions: {},
+    },
+  },
   sample_even0: {
     name: 'Equivalent: Even Number of 0s (2-State vs 4-State)',
     description: 'DFA 1 is the minimal 2-state DFA. DFA 2 is a 4-state DFA with redundant equivalent states.',
@@ -194,12 +233,12 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
   currentAutomaton,
   onLoadAutomaton,
 }) => {
-  // Preset selector state
-  const [selectedPresetKey, setSelectedPresetKey] = useState<string>('sample_even0');
+  // Preset selector state: default to exact notebook example
+  const [selectedPresetKey, setSelectedPresetKey] = useState<string>('sample_notebook');
 
   // DFA 1 and DFA 2 State Models
-  const [dfa1, setDfa1] = useState<AutomatonModel>(PRESET_EQUIVALENCE_SAMPLES.sample_even0.dfa1);
-  const [dfa2, setDfa2] = useState<AutomatonModel>(PRESET_EQUIVALENCE_SAMPLES.sample_even0.dfa2);
+  const [dfa1, setDfa1] = useState<AutomatonModel>(PRESET_EQUIVALENCE_SAMPLES.sample_notebook.dfa1);
+  const [dfa2, setDfa2] = useState<AutomatonModel>(PRESET_EQUIVALENCE_SAMPLES.sample_notebook.dfa2);
 
   // Form states for DFA 1
   const [newState1, setNewState1] = useState<string>('');
@@ -207,7 +246,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
   const [newFinalState1, setNewFinalState1] = useState<string>('');
   const [delFinalState1, setDelFinalState1] = useState<string>('');
   const [transFrom1, setTransFrom1] = useState<string>('q0');
-  const [transSym1, setTransSym1] = useState<string>('0');
+  const [transSym1, setTransSym1] = useState<string>('a');
   const [transTo1, setTransTo1] = useState<string>('q0');
   const [selectedDeleteTrans1, setSelectedDeleteTrans1] = useState<string>('');
 
@@ -216,16 +255,16 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
   const [newSym2, setNewSym2] = useState<string>('');
   const [newFinalState2, setNewFinalState2] = useState<string>('');
   const [delFinalState2, setDelFinalState2] = useState<string>('');
-  const [transFrom2, setTransFrom2] = useState<string>('A');
-  const [transSym2, setTransSym2] = useState<string>('0');
-  const [transTo2, setTransTo2] = useState<string>('A');
+  const [transFrom2, setTransFrom2] = useState<string>('q3');
+  const [transSym2, setTransSym2] = useState<string>('a');
+  const [transTo2, setTransTo2] = useState<string>('q3');
   const [selectedDeleteTrans2, setSelectedDeleteTrans2] = useState<string>('');
 
   // Option: Auto-complete missing transitions as non-accepting Dead State (∅)
   const [autoCompleteDeadState, setAutoCompleteDeadState] = useState<boolean>(true);
 
   // Interactive String Tester
-  const [testString, setTestString] = useState<string>('00');
+  const [testString, setTestString] = useState<string>('ab');
 
   // Active / Highlighted Pair on Canvas
   const [highlightedPair, setHighlightedPair] = useState<[string, string] | null>(null);
@@ -318,7 +357,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
       name: 'New DFA 1',
       type: 'DFA',
       states: ['q0'],
-      alphabet: ['0', '1'],
+      alphabet: ['a', 'b'],
       initial_state: 'q0',
       accepting_states: [],
       transitions: {},
@@ -332,18 +371,19 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
       id: `dfa2_${Date.now()}`,
       name: 'New DFA 2',
       type: 'DFA',
-      states: ['A'],
-      alphabet: ['0', '1'],
-      initial_state: 'A',
+      states: ['q3'],
+      alphabet: ['a', 'b'],
+      initial_state: 'q3',
       accepting_states: [],
       transitions: {},
       epsilon_transitions: {},
     });
-    setFeedback({ type: 'info', text: 'Reset DFA 2 to initial state A.' });
+    setFeedback({ type: 'info', text: 'Reset DFA 2 to initial state q3.' });
   };
 
   // ==========================================
   // CORE STATE-PAIRING EQUIVALENCE ALGORITHM
+  // (Produces the exact 2D table from user's notebook)
   // ==========================================
   const equivalenceResult = useMemo(() => {
     const combinedAlphabet = Array.from(
@@ -361,10 +401,12 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
         isEquivalent: false,
         counterexample: null,
         distinguishingPair: null,
-        pairingSteps: [] as PairingStep[],
-        uniquePairsDiscovered: [] as [string, string][],
+        matrixRows: [] as MatrixRow[],
         explanation: 'Please define states and start state for both DFA 1 and DFA 2.',
         combinedAlphabet,
+        startMatch: false,
+        start1Type: 'IS' as 'FS' | 'IS',
+        start2Type: 'IS' as 'FS' | 'IS',
       };
     }
 
@@ -385,10 +427,12 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
         isEquivalent: false,
         counterexample: null,
         distinguishingPair: null,
-        pairingSteps: [] as PairingStep[],
-        uniquePairsDiscovered: [] as [string, string][],
+        matrixRows: [] as MatrixRow[],
         explanation: `Under Construction: ${unconfigured} no transitions defined yet. Please add transitions using the "Add Transition" form before equivalence can be verified.`,
         combinedAlphabet,
+        startMatch: false,
+        start1Type: 'IS' as 'FS' | 'IS',
+        start2Type: 'IS' as 'FS' | 'IS',
       };
     }
 
@@ -400,10 +444,12 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
         isEquivalent: false,
         counterexample: null,
         distinguishingPair: null,
-        pairingSteps: [] as PairingStep[],
-        uniquePairsDiscovered: [] as [string, string][],
+        matrixRows: [] as MatrixRow[],
         explanation: 'Neither DFA has final states defined (F₁ = ∅, F₂ = ∅). Both DFAs currently reject all strings (Language L = ∅). Please add at least one final state using "Add Final State" to test language recognition.',
         combinedAlphabet,
+        startMatch: false,
+        start1Type: 'IS' as 'FS' | 'IS',
+        start2Type: 'IS' as 'FS' | 'IS',
       };
     }
 
@@ -415,10 +461,12 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
         isEquivalent: false,
         counterexample: null,
         distinguishingPair: null,
-        pairingSteps: [] as PairingStep[],
-        uniquePairsDiscovered: [] as [string, string][],
-        explanation: 'Strict Mode: Every state must have an exact transition defined for every alphabet symbol. Enable "Auto-complete Missing Transitions with Dead State (∅)" or complete all missing transitions.',
+        matrixRows: [] as MatrixRow[],
+        explanation: 'Strict Mode: Every state must have an exact transition defined for every alphabet symbol. Enable "Auto-Dead State (∅)" or complete all missing transitions.',
         combinedAlphabet,
+        startMatch: false,
+        start1Type: 'IS' as 'FS' | 'IS',
+        start2Type: 'IS' as 'FS' | 'IS',
       };
     }
 
@@ -437,131 +485,105 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
       return autId === 1 ? F1.has(state) : F2.has(state);
     };
 
-    const getPairStatus = (
-      s1: string,
-      s2: string
-    ): 'both_final' | 'both_non_final' | 'mismatch' => {
-      const f1 = isFinalState(1, s1);
-      const f2 = isFinalState(2, s2);
-      if (f1 && f2) return 'both_final';
-      if (!f1 && !f2) return 'both_non_final';
-      return 'mismatch';
-    };
+    // Step 1: Check Initial State & Final State Status
+    const start1IsFinal = isFinalState(1, start1);
+    const start2IsFinal = isFinalState(2, start2);
+    const startMatch = start1IsFinal === start2IsFinal;
+    const start1Type: 'FS' | 'IS' = start1IsFinal ? 'FS' : 'IS';
+    const start2Type: 'FS' | 'IS' = start2IsFinal ? 'FS' : 'IS';
 
-    // 5. Initial State Pair Check (Empty string ε evaluation)
-    const startStatus = getPairStatus(start1, start2);
-    const steps: PairingStep[] = [];
-    const visitedPairs = new Set<string>();
-    const discoveredPairs: [string, string][] = [];
-
-    const startKey = `${start1},${start2}`;
-    visitedPairs.add(startKey);
-    discoveredPairs.push([start1, start2]);
-
-    if (startStatus === 'mismatch') {
-      const isF1 = isFinalState(1, start1);
+    if (!startMatch) {
       return {
         isReady: true,
         status: 'evaluated',
         isEquivalent: false,
         counterexample: 'ε',
         distinguishingPair: [start1, start2] as [string, string],
-        pairingSteps: [
+        matrixRows: [
           {
-            step: 1,
-            currentPair: [start1, start2] as [string, string],
-            currentPairLabel: `(${start1}, ${start2})`,
-            isFinal1: isF1,
-            isFinal2: !isF1,
-            pairStatus: 'mismatch',
-            symbol: 'ε',
-            nextPair: [start1, start2] as [string, string],
-            nextPairLabel: `(${start1}, ${start2})`,
-            nextIsFinal1: isF1,
-            nextIsFinal2: !isF1,
-            nextPairStatus: 'mismatch',
-            isNewDiscovery: false,
-            path: 'ε',
-            note: `Initial states differ on empty string ε. DFA ${isF1 ? '1' : '2'} accepts (${isF1 ? start1 : start2} ∈ F), DFA ${isF1 ? '2' : '1'} rejects (${isF1 ? start2 : start1} ∉ F).`,
+            rowNumber: 1,
+            pair: [start1, start2] as [string, string],
+            pairLabel: `(${start1}, ${start2})`,
+            isInitial: true,
+            pairType1: start1Type,
+            pairType2: start2Type,
+            isMatch: false,
+            transitions: {},
           },
         ],
-        uniquePairsDiscovered: [[start1, start2]],
-        explanation: `NOT EQUIVALENT: The DFAs differ on the empty string ε. DFA ${isF1 ? '1' : '2'} accepts ε because start state "${isF1 ? start1 : start2}" is final, while DFA ${isF1 ? '2' : '1'} rejects ε.`,
+        explanation: `The DFAs are NOT equivalent to each other. Step 1 check fails: The initial state of DFA 1 (${start1}) is ${start1Type === 'FS' ? 'Final State (FS)' : 'Non-Final (IS)'}, but the initial state of DFA 2 (${start2}) is ${start2Type === 'FS' ? 'Final State (FS)' : 'Non-Final (IS)'}. Counterexample string: ε (empty string).`,
         combinedAlphabet,
+        startMatch: false,
+        start1Type,
+        start2Type,
       };
     }
 
-    // 6. BFS State Pairing Exploration
+    // Step 2: 2D Transition State-Pair Table Construction (Notebook Method)
+    const matrixRows: MatrixRow[] = [];
     const queue: Array<{ pair: [string, string]; path: string }> = [
       { pair: [start1, start2], path: '' },
     ];
+    const visitedSet = new Set<string>();
+    visitedSet.add(`${start1},${start2}`);
 
-    let stepCounter = 1;
+    let rowNum = 1;
     let foundMismatch = false;
-    let counterexampleString: string | null = null;
-    let distinguishingPairFound: [string, string] | null = null;
-    let mismatchExplanation = '';
+    let mismatchPath = '';
+    let mismatchPair: [string, string] | null = null;
+    let mismatchExp = '';
 
     while (queue.length > 0) {
       const { pair: [p, q], path } = queue.shift()!;
       const isF1 = isFinalState(1, p);
       const isF2 = isFinalState(2, q);
-      const currStatus = getPairStatus(p, q);
+      const currMatch = isF1 === isF2;
+
+      const transMap: MatrixRow['transitions'] = {};
 
       for (const sym of combinedAlphabet) {
         const nextP = getNextState(dfa1, p, sym);
         const nextQ = getNextState(dfa2, q, sym);
         const nextF1 = isFinalState(1, nextP);
         const nextF2 = isFinalState(2, nextQ);
-        const nextStatus = getPairStatus(nextP, nextQ);
-
+        const nextMatch = nextF1 === nextF2;
         const nextKey = `${nextP},${nextQ}`;
-        const isNew = !visitedPairs.has(nextKey);
+        const isNew = !visitedSet.has(nextKey);
         const nextPath = path + sym;
 
-        let note = '';
-        if (nextStatus === 'mismatch') {
-          note = `DISTINGUISHING PAIR! On input '${nextPath}', DFA ${nextF1 ? '1' : '2'} accepts (${nextF1 ? nextP : nextQ} ∈ F), but DFA ${nextF1 ? '2' : '1'} rejects (${nextF1 ? nextQ : nextP} ∉ F).`;
-        } else if (nextP === '∅' || nextQ === '∅') {
-          note = `Transition leads to Dead State ∅ (undefined transition). Both remain non-accepting.`;
-        } else if (isNew) {
-          note = `New reachable state pair discovered and queued for evaluation.`;
-        } else {
-          note = `State pair already visited in prior step.`;
-        }
-
-        steps.push({
-          step: stepCounter++,
-          currentPair: [p, q],
-          currentPairLabel: `(${p}, ${q})`,
-          isFinal1: isF1,
-          isFinal2: isF2,
-          pairStatus: currStatus,
-          symbol: sym,
+        transMap[sym] = {
           nextPair: [nextP, nextQ],
           nextPairLabel: `(${nextP}, ${nextQ})`,
-          nextIsFinal1: nextF1,
-          nextIsFinal2: nextF2,
-          nextPairStatus: nextStatus,
-          isNewDiscovery: isNew,
-          path: nextPath,
-          note,
-        });
+          nextType1: nextF1 ? 'FS' : 'IS',
+          nextType2: nextF2 ? 'FS' : 'IS',
+          isMatch: nextMatch,
+          isNew,
+          isDead: nextP === '∅' || nextQ === '∅',
+        };
 
-        if (nextStatus === 'mismatch' && !foundMismatch) {
+        if (!nextMatch && !foundMismatch) {
           foundMismatch = true;
-          counterexampleString = nextPath;
-          distinguishingPairFound = [nextP, nextQ];
-          mismatchExplanation = `NOT EQUIVALENT: Found distinguishing counterexample string "${nextPath}". On this input, DFA ${nextF1 ? '1' : '2'} accepts (ending in final state "${nextF1 ? nextP : nextQ}"), whereas DFA ${nextF1 ? '2' : '1'} rejects (ending in non-final state "${nextF1 ? nextQ : nextP}").`;
-          break;
+          mismatchPath = nextPath;
+          mismatchPair = [nextP, nextQ];
+          mismatchExp = `The DFAs are NOT equivalent to each other. Found distinguishing pair (${nextP}, ${nextQ}) on input string "${nextPath}". DFA ${nextF1 ? '1' : '2'} reaches final state (${nextF1 ? nextP : nextQ} ∈ F), whereas DFA ${nextF1 ? '2' : '1'} reaches non-final state (${nextF1 ? nextQ : nextP} ∉ F).`;
         }
 
-        if (isNew) {
-          visitedPairs.add(nextKey);
-          discoveredPairs.push([nextP, nextQ]);
+        if (isNew && !foundMismatch) {
+          visitedSet.add(nextKey);
           queue.push({ pair: [nextP, nextQ], path: nextPath });
         }
       }
+
+      matrixRows.push({
+        rowNumber: rowNum++,
+        pair: [p, q],
+        pairLabel: `(${p}, ${q})`,
+        isInitial: p === start1 && q === start2,
+        pairType1: isF1 ? 'FS' : 'IS',
+        pairType2: isF2 ? 'FS' : 'IS',
+        isMatch: currMatch,
+        transitions: transMap,
+      });
 
       if (foundMismatch) {
         break;
@@ -573,12 +595,14 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
         isReady: true,
         status: 'evaluated',
         isEquivalent: false,
-        counterexample: counterexampleString,
-        distinguishingPair: distinguishingPairFound,
-        pairingSteps: steps,
-        uniquePairsDiscovered: discoveredPairs,
-        explanation: mismatchExplanation,
+        counterexample: mismatchPath,
+        distinguishingPair: mismatchPair,
+        matrixRows,
+        explanation: mismatchExp,
         combinedAlphabet,
+        startMatch: true,
+        start1Type,
+        start2Type,
       };
     }
 
@@ -588,10 +612,12 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
       isEquivalent: true,
       counterexample: null,
       distinguishingPair: null,
-      pairingSteps: steps,
-      uniquePairsDiscovered: discoveredPairs,
-      explanation: `EQUIVALENT: L(DFA 1) ≡ L(DFA 2). Explored all ${visitedPairs.size} reachable state pairs in the Cartesian cross-product. Every reachable pair shares identical acceptance status across the entire combined alphabet {${combinedAlphabet.join(', ')}}.`,
+      matrixRows,
+      explanation: `Both the DFAs are equivalent to each other. Explored all ${visitedSet.size} reachable state pairs in the Cartesian cross-product. Every state pair evaluated shares identical acceptance types (FS with FS, or IS with IS) under all alphabet transitions.`,
       combinedAlphabet,
+      startMatch: true,
+      start1Type,
+      start2Type,
     };
   }, [dfa1, dfa2, dfa1TransitionList, dfa2TransitionList, autoCompleteDeadState, isDfa1Complete, isDfa2Complete]);
 
@@ -1569,114 +1595,103 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
         </div>
       </div>
 
-      {/* ROW 2: EQUIVALENCE VERDICT & CROSS-PRODUCT STATE-PAIRING TABLE */}
+      {/* ROW 2: EQUIVALENCE VERDICT & TEXTBOOK STATE-PAIRING TABLE */}
       <div className="flex flex-col gap-4">
-        {/* Giant Status Verdict Banner */}
-        {!equivalenceResult.isReady ? (
-          <div className="p-6 rounded-2xl border shadow-2xl flex flex-col md:flex-row items-center gap-5 bg-gradient-to-r from-amber-950/40 via-slate-900 to-amber-950/20 border-amber-800/80 text-amber-100">
-            <div className="p-3.5 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-lg shadow-amber-500/20">
-              <AlertTriangle className="w-10 h-10" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2.5">
-                <h3 className="text-xl font-black tracking-tight text-amber-200">
-                  AWAITING DFA CONFIGURATION
-                </h3>
-                <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  Setup Incomplete
-                </span>
-              </div>
-              <p className="text-xs text-slate-300 mt-1 max-w-3xl leading-relaxed">
-                {equivalenceResult.explanation}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div
-            className={`p-6 rounded-2xl border shadow-2xl flex flex-col md:flex-row items-center justify-between gap-5 transition-all ${
-              equivalenceResult.isEquivalent
-                ? 'bg-gradient-to-r from-emerald-950/40 via-slate-900 to-emerald-950/30 border-emerald-800 text-emerald-100'
-                : 'bg-gradient-to-r from-rose-950/40 via-slate-900 to-rose-950/30 border-rose-800 text-rose-100'
-            }`}
-          >
-            <div className="flex items-center gap-4">
-              <div
-                className={`p-3.5 rounded-2xl ${
-                  equivalenceResult.isEquivalent
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-lg shadow-emerald-500/20'
-                    : 'bg-rose-500/20 text-rose-400 border border-rose-500/40 shadow-lg shadow-rose-500/20'
+        {/* STEP 1: INITIAL STATE & FINAL STATE VERIFICATION */}
+        <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl flex flex-col gap-2.5">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <h4 className="font-bold text-white text-xs flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 font-bold flex items-center justify-center text-[10px] border border-cyan-500/40">
+                1
+              </span>
+              <span>Step 1: Initial State & Final State Status Check</span>
+            </h4>
+            {equivalenceResult.isReady && (
+              <span
+                className={`text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold ${
+                  equivalenceResult.startMatch
+                    ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800'
+                    : 'bg-rose-950/80 text-rose-300 border border-rose-800'
                 }`}
               >
-                {equivalenceResult.isEquivalent ? (
-                  <CheckCircle2 className="w-10 h-10" />
-                ) : (
-                  <XCircle className="w-10 h-10" />
-                )}
-              </div>
-              <div>
-                <div className="flex items-center gap-2.5">
-                  <h3 className="text-xl font-black tracking-tight">
-                    {equivalenceResult.isEquivalent
-                      ? 'DFAs ARE MATHEMATICALLY EQUIVALENT'
-                      : 'DFAs ARE NOT EQUIVALENT'}
-                  </h3>
-                  <span
-                    className={`text-xs px-2.5 py-0.5 rounded-full font-mono font-bold ${
-                      equivalenceResult.isEquivalent
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                        : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                    }`}
-                  >
-                    {equivalenceResult.isEquivalent ? 'L(DFA 1) ≡ L(DFA 2)' : 'L(DFA 1) ≢ L(DFA 2)'}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-300 mt-1 max-w-3xl leading-relaxed">
-                  {equivalenceResult.explanation}
-                </p>
-              </div>
-            </div>
-
-            {/* Distinguishing Counterexample Pill */}
-            {!equivalenceResult.isEquivalent && (
-              <div className="flex flex-col items-end gap-1.5 bg-slate-950/90 border border-rose-700/60 p-3.5 rounded-xl text-right">
-                <span className="text-[10px] font-semibold uppercase text-rose-400 tracking-wider">
-                  Shortest Distinguishing Counterexample:
-                </span>
-                <span className="font-mono text-base font-bold text-white bg-rose-950/80 px-3 py-1 rounded border border-rose-600/80">
-                  {equivalenceResult.counterexample === '' ? 'ε (empty string)' : `"${equivalenceResult.counterexample}"`}
-                </span>
-                {equivalenceResult.distinguishingPair && (
-                  <span className="text-[11px] font-mono text-slate-400">
-                    Distinguishing Pair: ({equivalenceResult.distinguishingPair[0]}, {equivalenceResult.distinguishingPair[1]})
-                  </span>
-                )}
-              </div>
+                {equivalenceResult.startMatch ? 'Initial States Match (FS/IS) ✓' : 'Initial States Mismatch ✗'}
+              </span>
             )}
           </div>
-        )}
 
-        {/* INTERACTIVE STATE-PAIRING CROSS-PRODUCT TABLE */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-slate-400">DFA 1 Initial State: </span>
+                <strong className="text-cyan-300">{dfa1.initial_state || '∅'}</strong>
+              </div>
+              <span
+                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                  dfa1.accepting_states.includes(dfa1.initial_state)
+                    ? 'bg-red-950/80 text-red-300 border border-red-800'
+                    : 'bg-slate-800 text-slate-300'
+                }`}
+              >
+                {dfa1.accepting_states.includes(dfa1.initial_state)
+                  ? 'FS (Final State)'
+                  : 'IS (Intermediate / Non-Final)'}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-slate-400">DFA 2 Initial State: </span>
+                <strong className="text-purple-300">{dfa2.initial_state || '∅'}</strong>
+              </div>
+              <span
+                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                  dfa2.accepting_states.includes(dfa2.initial_state)
+                    ? 'bg-red-950/80 text-red-300 border border-red-800'
+                    : 'bg-slate-800 text-slate-300'
+                }`}
+              >
+                {dfa2.accepting_states.includes(dfa2.initial_state)
+                  ? 'FS (Final State)'
+                  : 'IS (Intermediate / Non-Final)'}
+              </span>
+            </div>
+          </div>
+
+          <p className="text-[11px] text-slate-400 italic">
+            {equivalenceResult.isReady
+              ? equivalenceResult.startMatch
+                ? `• Both initial states share identical acceptance status (${equivalenceResult.start1Type} & ${equivalenceResult.start2Type}). Proceed to Step 2 to compute state pairs under all alphabet symbols.`
+                : `• Initial states differ on empty string ε. DFA ${equivalenceResult.start1Type === 'FS' ? '1' : '2'} accepts ε, whereas DFA ${equivalenceResult.start1Type === 'FS' ? '2' : '1'} rejects ε. Equivalence fails at Step 1.`
+              : '• Please complete state, symbol, and transition configuration to verify initial states.'}
+          </p>
+        </div>
+
+        {/* STEP 2: 2D TRANSITION STATE-PAIRING TABLE (EXACT NOTEBOOK FORMAT) */}
         <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col gap-3">
           <div className="flex items-center justify-between border-b border-slate-800 pb-2.5 flex-wrap gap-2">
             <div>
               <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 font-bold flex items-center justify-center text-[10px] border border-cyan-500/40">
+                  2
+                </span>
                 <ShieldCheck className="w-4 h-4 text-cyan-400" />
-                <span>State-Pairing Cross-Product Evaluation Table</span>
+                <span>Step 2: State-Pair Transition Table (Cartesian Product Matrix)</span>
               </h3>
               <p className="text-xs text-slate-400">
-                Traces each pair (p, q) ∈ Q₁ × Q₂ starting at (q₀₁, q₀₂). If any reachable pair has one accepting state and one non-accepting state, equivalence fails.
+                Starting from (q₀₁, q₀₂), explores each reachable pair of states on all alphabet symbols. For equivalence, every cell must match in status (FS with FS, or IS with IS).
               </p>
             </div>
-            {equivalenceResult.isReady && (
-              <div className="flex items-center gap-2 text-xs font-mono">
-                <span className="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-cyan-300">
-                  {equivalenceResult.uniquePairsDiscovered.length} Unique Pairs Explored
-                </span>
-                <span className="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-purple-300">
-                  {equivalenceResult.pairingSteps.length} Transition Evaluations
-                </span>
-              </div>
-            )}
+
+            <div className="flex items-center gap-4 text-xs font-mono">
+              <span className="flex items-center gap-1.5 text-red-300">
+                <span className="w-2.5 h-2.5 rounded bg-red-600 inline-block" />
+                FS = Final State
+              </span>
+              <span className="flex items-center gap-1.5 text-slate-300">
+                <span className="w-2.5 h-2.5 rounded bg-slate-600 inline-block" />
+                IS = Intermediate (Non-Final) State
+              </span>
+            </div>
           </div>
 
           {/* Table Container */}
@@ -1689,81 +1704,117 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto border border-slate-800 rounded-xl bg-slate-950/90 max-h-96">
-              <table className="w-full text-left text-xs font-mono">
-                <thead className="bg-slate-900/90 border-b border-slate-800 text-slate-400 sticky top-0 backdrop-blur z-10">
+            <div className="overflow-x-auto border border-slate-800 rounded-xl bg-slate-950/90">
+              <table className="w-full text-left text-xs font-mono border-collapse">
+                <thead className="bg-slate-900 border-b border-slate-800 text-slate-300">
                   <tr>
-                    <th className="py-2 px-3 text-center w-12">#</th>
-                    <th className="py-2 px-3">Current Pair (p, q)</th>
-                    <th className="py-2 px-3">Pair State Types</th>
-                    <th className="py-2 px-3 text-center">Symbol (a)</th>
-                    <th className="py-2 px-3">Next Pair (δ₁(p,a), δ₂(q,a))</th>
-                    <th className="py-2 px-3 text-center">Match Status</th>
-                    <th className="py-2 px-3">Evaluation Action / Notes</th>
+                    <th className="py-2.5 px-4 w-48 border-r border-slate-800 text-cyan-400 font-bold">
+                      State Pair
+                    </th>
+                    {equivalenceResult.combinedAlphabet.map((sym) => (
+                      <th
+                        key={sym}
+                        className="py-2.5 px-4 text-center border-r border-slate-800 last:border-r-0 font-bold text-white text-sm"
+                      >
+                        {sym}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/60 text-slate-200">
-                  {equivalenceResult.pairingSteps.map((step) => {
-                    const isDistinguishing = step.nextPairStatus === 'mismatch';
+                <tbody className="divide-y divide-slate-800/80 text-slate-200">
+                  {equivalenceResult.matrixRows.map((row) => {
                     const isHovered =
                       highlightedPair &&
-                      highlightedPair[0] === step.currentPair[0] &&
-                      highlightedPair[1] === step.currentPair[1];
+                      highlightedPair[0] === row.pair[0] &&
+                      highlightedPair[1] === row.pair[1];
 
                     return (
                       <tr
-                        key={step.step}
-                        onMouseEnter={() => setHighlightedPair(step.currentPair)}
+                        key={row.rowNumber}
+                        onMouseEnter={() => setHighlightedPair(row.pair)}
                         onMouseLeave={() => setHighlightedPair(null)}
                         className={`transition-colors cursor-pointer ${
-                          isDistinguishing
-                            ? 'bg-rose-950/40 hover:bg-rose-900/40'
-                            : isHovered
-                            ? 'bg-cyan-950/40'
-                            : 'hover:bg-slate-900/60'
+                          isHovered ? 'bg-cyan-950/40' : 'hover:bg-slate-900/60'
                         }`}
                       >
-                        <td className="py-2 px-3 text-center text-slate-500 font-bold">{step.step}</td>
-                        <td className="py-2 px-3 font-bold text-white">
-                          <span className="text-cyan-300 font-bold">{step.currentPairLabel}</span>
-                        </td>
-                        <td className="py-2 px-3 text-[11px]">
-                          <span className={step.isFinal1 ? 'text-red-400 font-bold' : 'text-slate-400'}>
-                            p:{step.isFinal1 ? 'Final' : 'Non-final'}
-                          </span>
-                          <span className="text-slate-600 mx-1">|</span>
-                          <span className={step.isFinal2 ? 'text-red-400 font-bold' : 'text-slate-400'}>
-                            q:{step.isFinal2 ? 'Final' : 'Non-final'}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-750 text-cyan-400 font-bold">
-                            {step.symbol}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 font-bold">
-                          <span className={isDistinguishing ? 'text-rose-400' : 'text-purple-300'}>
-                            {step.nextPairLabel}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          {step.nextPairStatus === 'both_final' ? (
-                            <span className="px-2 py-0.5 rounded bg-emerald-950/70 border border-emerald-800 text-emerald-300 text-[10px] font-sans font-semibold">
-                              Both Final (Match ✓)
+                        {/* State Pair Column */}
+                        <td className="py-3 px-4 font-bold border-r border-slate-800 bg-slate-900/40">
+                          <div className="flex items-center gap-1.5 text-sm">
+                            {row.isInitial && (
+                              <span className="text-emerald-400 font-black text-base mr-0.5">⇒</span>
+                            )}
+                            <span className="text-cyan-300">{row.pair[0]}</span>
+                            <span className="text-purple-300">{row.pair[1]}</span>
+                          </div>
+                          <div className="text-[10px] font-semibold text-slate-400 mt-0.5">
+                            <span className={row.pairType1 === 'FS' ? 'text-red-400' : 'text-slate-400'}>
+                              {row.pairType1}
+                            </span>{' '}
+                            <span className={row.pairType2 === 'FS' ? 'text-red-400' : 'text-slate-400'}>
+                              {row.pairType2}
                             </span>
-                          ) : step.nextPairStatus === 'both_non_final' ? (
-                            <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-750 text-slate-300 text-[10px] font-sans">
-                              Both Non-Final (Match ✓)
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded bg-rose-950 border border-rose-700 text-rose-300 text-[10px] font-sans font-bold animate-pulse">
-                              MISMATCH ✗
-                            </span>
-                          )}
+                          </div>
                         </td>
-                        <td className="py-2 px-3 text-[11px] text-slate-400 font-sans">
-                          {step.note}
-                        </td>
+
+                        {/* Transitions for each symbol */}
+                        {equivalenceResult.combinedAlphabet.map((sym) => {
+                          const trans = row.transitions[sym];
+                          if (!trans) {
+                            return (
+                              <td key={sym} className="py-3 px-4 text-center border-r border-slate-800 last:border-r-0 text-slate-600">
+                                —
+                              </td>
+                            );
+                          }
+
+                          const isMismatch = !trans.isMatch;
+
+                          return (
+                            <td
+                              key={sym}
+                              className={`py-3 px-4 text-center border-r border-slate-800 last:border-r-0 transition-colors ${
+                                isMismatch ? 'bg-rose-950/50' : ''
+                              }`}
+                            >
+                              {/* Next Pair Label */}
+                              <div className="font-bold text-sm flex items-center justify-center gap-1.5">
+                                <span className={isMismatch ? 'text-rose-300 font-black' : 'text-cyan-200'}>
+                                  {trans.nextPair[0]}
+                                </span>
+                                <span className={isMismatch ? 'text-rose-300 font-black' : 'text-purple-200'}>
+                                  {trans.nextPair[1]}
+                                </span>
+                              </div>
+
+                              {/* Classification FS/IS (Exactly as written in textbook notes) */}
+                              <div className="mt-1 flex items-center justify-center gap-1.5">
+                                <span
+                                  className={`text-[11px] font-bold tracking-wider ${
+                                    isMismatch
+                                      ? 'text-rose-400 font-black'
+                                      : trans.nextType1 === 'FS'
+                                      ? 'text-red-400'
+                                      : 'text-slate-400'
+                                  }`}
+                                >
+                                  {trans.nextType1} {trans.nextType2}
+                                </span>
+
+                                {trans.isNew && (
+                                  <span className="text-[9px] px-1 py-0.2 rounded bg-cyan-950 border border-cyan-800 text-cyan-300 font-sans">
+                                    New
+                                  </span>
+                                )}
+
+                                {isMismatch && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-950 border border-rose-700 text-rose-300 font-sans font-bold animate-pulse">
+                                    MISMATCH ✗
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        })}
                       </tr>
                     );
                   })}
@@ -1772,6 +1823,43 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
             </div>
           )}
         </div>
+
+        {/* STEP 3: FINAL VERDICT (EXACT NOTEBOOK CONCLUSION) */}
+        {equivalenceResult.isReady && (
+          <div
+            className={`p-6 rounded-2xl border shadow-2xl flex flex-col items-center justify-center gap-2 text-center transition-all ${
+              equivalenceResult.isEquivalent
+                ? 'bg-gradient-to-r from-emerald-950/40 via-slate-900 to-emerald-950/40 border-emerald-800 text-emerald-100'
+                : 'bg-gradient-to-r from-rose-950/40 via-slate-900 to-rose-950/40 border-rose-800 text-rose-100'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              {equivalenceResult.isEquivalent ? (
+                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+              ) : (
+                <XCircle className="w-8 h-8 text-rose-400" />
+              )}
+              <h3 className="text-xl font-black tracking-tight">
+                {equivalenceResult.isEquivalent
+                  ? 'Both the DFAs are equivalent to each other'
+                  : 'The DFAs are NOT equivalent to each other'}
+              </h3>
+            </div>
+
+            <p className="text-xs text-slate-300 max-w-3xl leading-relaxed mt-1 font-sans">
+              {equivalenceResult.explanation}
+            </p>
+
+            {!equivalenceResult.isEquivalent && equivalenceResult.counterexample && (
+              <div className="mt-2 flex items-center gap-2 bg-slate-950/90 border border-rose-700/80 px-4 py-1.5 rounded-xl font-mono text-xs">
+                <span className="text-rose-400 font-semibold uppercase">Shortest Distinguishing String:</span>
+                <span className="text-white font-bold bg-rose-950 px-2 py-0.5 rounded border border-rose-600">
+                  {equivalenceResult.counterexample === '' ? 'ε (empty string)' : `"${equivalenceResult.counterexample}"`}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* STRING SIMULATOR TEST BAR */}
         <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col gap-3">
@@ -1788,7 +1876,7 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
           <div className="flex items-center gap-3">
             <input
               type="text"
-              placeholder="Enter test string e.g. 0101"
+              placeholder="Enter test string e.g. aab, bba"
               value={testString}
               onChange={(e) => setTestString(e.target.value)}
               className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white font-mono outline-none focus:border-cyan-500 w-72"
