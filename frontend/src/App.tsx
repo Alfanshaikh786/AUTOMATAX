@@ -423,6 +423,10 @@ export function App() {
             <EquivalenceView
               availableAutomata={availableAutomata}
               currentAutomaton={currentAutomaton}
+              onLoadAutomaton={(aut) => {
+                setCurrentAutomaton(aut);
+                setActiveTab('builder');
+              }}
             />
           )}
         </div>
