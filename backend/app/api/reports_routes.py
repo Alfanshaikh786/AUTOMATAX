@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Response
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+import re
+import urllib.parse
 from app.models.automaton import AutomatonModel
 from app.services.report_service import (
     generate_pdf_report,
@@ -9,6 +11,30 @@ from app.services.report_service import (
 )
 
 router = APIRouter(prefix="/api/reports", tags=["Reports"])
+
+def _make_content_disposition(raw_filename: str) -> str:
+    """
+    Format a robust, RFC-compliant Content-Disposition header.
+    Starlette encodes all HTTP headers strictly using latin-1.
+    We provide a sanitized ASCII filename fallback plus an RFC 5987 percent-encoded UTF-8 filename.
+    """
+    safe_ascii = (
+        raw_filename
+        .replace('ε', 'eps')
+        .replace('Σ', 'Sigma')
+        .replace('δ', 'delta')
+        .replace('∅', 'empty')
+        .replace('→', 'to')
+        .replace('⇒', 'to')
+    )
+    safe_ascii = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', safe_ascii).strip('_')
+    if not safe_ascii.lower().endswith('.pdf'):
+        safe_ascii += '.pdf'
+    if not safe_ascii:
+        safe_ascii = "automaton_report.pdf"
+
+    encoded_utf8 = urllib.parse.quote(raw_filename.encode('utf-8'))
+    return f'attachment; filename="{safe_ascii}"; filename*=UTF-8\'\'{encoded_utf8}'
 
 class ReportRequest(BaseModel):
     automaton: AutomatonModel
@@ -47,10 +73,11 @@ def api_generate_pdf(req: ReportRequest):
         test_results=req.test_results,
         notes=req.notes or ""
     )
+    filename = f"{req.automaton.name}_report.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={req.automaton.name}_report.pdf"}
+        headers={"Content-Disposition": _make_content_disposition(filename)}
     )
 
 @router.post("/conversion-pdf")
@@ -69,7 +96,7 @@ def api_generate_conversion_pdf(req: ConversionReportRequest):
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": _make_content_disposition(filename)}
     )
 
 @router.post("/equivalence-pdf")
@@ -89,5 +116,5 @@ def api_generate_equivalence_pdf(req: EquivalenceReportRequest):
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": _make_content_disposition(filename)}
     )

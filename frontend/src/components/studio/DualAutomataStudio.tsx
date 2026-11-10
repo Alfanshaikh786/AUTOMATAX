@@ -944,7 +944,8 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
       });
 
       const url = URL.createObjectURL(blob);
-      const filename = `${nfa.name.replace(/\s+/g, '_')}_conversion_report.pdf`;
+      const safeSrcName = (nfa.name || 'Automaton').replace(/ε/g, 'eps').replace(/[^\w\.-]/g, '_');
+      const filename = `${safeSrcName}_conversion_report.pdf`;
       const a = document.createElement('a');
       a.style.display = 'none';
       a.href = url;

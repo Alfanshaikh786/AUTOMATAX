@@ -665,8 +665,8 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
       });
 
       const url = URL.createObjectURL(blob);
-      const name1 = (dfa1.name || 'DFA1').replace(/\s+/g, '_');
-      const name2 = (dfa2.name || 'DFA2').replace(/\s+/g, '_');
+      const name1 = (dfa1.name || 'DFA1').replace(/ε/g, 'eps').replace(/[^\w\.-]/g, '_');
+      const name2 = (dfa2.name || 'DFA2').replace(/ε/g, 'eps').replace(/[^\w\.-]/g, '_');
       const filename = `${name1}_vs_${name2}_equivalence_report.pdf`;
       const a = document.createElement('a');
       a.style.display = 'none';

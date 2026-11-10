@@ -123,7 +123,7 @@ def _make_spec_table(automaton: AutomatonModel, prefix: str = ""):
 
 def _make_trans_table(automaton: AutomatonModel, delta_label: str = "δ"):
     headers = [delta_label] + list(automaton.alphabet)
-    if automaton.type.value == "ENFA":
+    if _get_type_str(automaton) == "ENFA":
         headers.append("ε")
 
     table_data = [headers]
@@ -143,7 +143,7 @@ def _make_trans_table(automaton: AutomatonModel, delta_label: str = "δ"):
                     row.append(f"{{{', '.join(dests)}}}")
             else:
                 row.append("∅")
-        if automaton.type.value == "ENFA":
+        if _get_type_str(automaton) == "ENFA":
             eps_dests = automaton.epsilon_transitions.get(s, [])
             row.append(f"{{{', '.join(eps_dests)}}}" if eps_dests else "∅")
         table_data.append(row)
@@ -188,7 +188,7 @@ def generate_pdf_report(
     elements = []
 
     elements.append(Paragraph(title, styles['title']))
-    elements.append(Paragraph(f"<b>Automaton:</b> {automaton.name} | <b>Type:</b> {automaton.type.value} | <b>Alphabet:</b> {{{', '.join(automaton.alphabet)}}}", styles['subtitle']))
+    elements.append(Paragraph(f"<b>Automaton:</b> {automaton.name} | <b>Type:</b> {_get_type_str(automaton)} | <b>Alphabet:</b> {{{', '.join(automaton.alphabet)}}}", styles['subtitle']))
     elements.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#0284c7"), spaceAfter=10))
 
     elements.append(Paragraph("1. Formal 5-Tuple Specification", styles['h2']))
@@ -244,11 +244,11 @@ def generate_conversion_pdf_report(
 
     # Document Header
     elements.append(Paragraph(title, styles['title']))
-    elements.append(Paragraph(f"Method: <b>{mode_name}</b> | Source: <b>{source_automaton.name}</b> ({source_automaton.type.value}) → Target: <b>{target_automaton.name}</b> ({target_automaton.type.value})", styles['subtitle']))
+    elements.append(Paragraph(f"Method: <b>{mode_name}</b> | Source: <b>{source_automaton.name}</b> ({_get_type_str(source_automaton)}) → Target: <b>{target_automaton.name}</b> ({_get_type_str(target_automaton)})", styles['subtitle']))
     elements.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#0284c7"), spaceAfter=12))
 
     # SECTION 1: SOURCE AUTOMATON
-    src_label = "Source ε-NFA" if source_automaton.type.value == "ENFA" else "Source NFA"
+    src_label = "Source ε-NFA" if _get_type_str(source_automaton) == "ENFA" else "Source NFA"
     elements.append(Paragraph(f"1. {src_label} Formal Specification M_src = (Q_src, Σ, δ_src, q0_src, F_src)", styles['h2']))
     elements.append(_make_spec_table(source_automaton, prefix="_src"))
     elements.append(Spacer(1, 8))
