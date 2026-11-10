@@ -48,14 +48,36 @@ app.include_router(reports_router)
 app.include_router(ai_router)
 app.include_router(practice_router)
 
-@app.get("/")
-def root():
-    return {
-        "name": "AutomataX — The Intelligent Automata Construction, Conversion & Verification Laboratory",
-        "status": "online",
-        "version": "1.0.0",
-        "docs_url": "/docs"
-    }
+import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+# Mount built frontend static files if present (for single-service fullstack deployment)
+frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../frontend/dist"))
+if not os.path.exists(frontend_dist):
+    # Alternative path if root directory was set to backend/
+    frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../frontend/dist"))
+
+assets_dir = os.path.join(frontend_dist, "assets")
+if os.path.isdir(assets_dir):
+    app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend_assets")
+
+if os.path.isfile(os.path.join(frontend_dist, "index.html")):
+    @app.get("/{full_path:path}")
+    def serve_spa(full_path: str):
+        candidate = os.path.join(frontend_dist, full_path)
+        if full_path and os.path.isfile(candidate):
+            return FileResponse(candidate)
+        return FileResponse(os.path.join(frontend_dist, "index.html"))
+else:
+    @app.get("/")
+    def root():
+        return {
+            "name": "AutomataX — The Intelligent Automata Construction, Conversion & Verification Laboratory",
+            "status": "online",
+            "version": "1.0.0",
+            "docs_url": "/docs"
+        }
 
 @app.get("/health")
 def health():
