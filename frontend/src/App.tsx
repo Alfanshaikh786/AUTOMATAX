@@ -107,7 +107,6 @@ export function App() {
     { id: 'dual-studio', label: 'Dual NFA Studio (NFA → DFA)', icon: Workflow },
     { id: 'dual-enfa-to-nfa', label: 'Dual ε-NFA Studio (ε-NFA → NFA)', icon: Sparkles },
     { id: 'dual-enfa-studio', label: 'Dual ε-NFA Studio (ε-NFA → DFA)', icon: GitFork },
-    { id: 'conversion', label: 'Conversion Lab', icon: Layers },
     { id: 'simulation', label: 'String Simulator', icon: Play },
     { id: 'equivalence', label: 'Equivalence Checker', icon: GitCompare },
   ];
