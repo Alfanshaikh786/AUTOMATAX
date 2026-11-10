@@ -95,6 +95,10 @@ def _create_styles():
     }
 
 
+def _get_type_str(automaton: AutomatonModel) -> str:
+    return str(getattr(automaton.type, 'value', automaton.type))
+
+
 def _make_spec_table(automaton: AutomatonModel, prefix: str = ""):
     spec_data = [
         ["Tuple Component", "Symbol", "Mathematical Set Definition"],
@@ -102,7 +106,7 @@ def _make_spec_table(automaton: AutomatonModel, prefix: str = ""):
         ["Alphabet", "Σ", f"{{{', '.join(automaton.alphabet) or '∅'}}}"],
         ["Initial State", f"q₀{prefix}", automaton.initial_state or "∅"],
         ["Final / Accepting States", f"F{prefix}", f"{{{', '.join(automaton.accepting_states) or '∅'}}}"],
-        ["Automaton Type", "Type", automaton.type.value]
+        ["Automaton Type", "Type", _get_type_str(automaton)]
     ]
     t = Table(spec_data, colWidths=[120, 60, 350])
     t.setStyle(TableStyle([
@@ -441,9 +445,11 @@ def generate_equivalence_pdf_report(
         matrix_table_data = [table_headers]
 
         for r in matrix_rows:
-            pair = r.get('pair', ['', ''])
+            pair = r.get('pair') or ['', '']
+            p0 = pair[0] if len(pair) > 0 else ''
+            p1 = pair[1] if len(pair) > 1 else ''
             is_initial = r.get('isInitial', False)
-            pair_label = f"{'⇒ ' if is_initial else ''}{pair[0]} {pair[1]}\n({r.get('pairType1', '')} {r.get('pairType2', '')})"
+            pair_label = f"{'⇒ ' if is_initial else ''}{p0} {p1}\n({r.get('pairType1', '')} {r.get('pairType2', '')})"
             row_cells = [Paragraph(pair_label.replace('\n', '<br/>'), styles['cell_bold'])]
 
             trans_map = r.get('transitions', {})
@@ -452,13 +458,15 @@ def generate_equivalence_pdf_report(
                 if not trans:
                     row_cells.append(Paragraph("—", styles['cell']))
                     continue
-                next_pair = trans.get('nextPair', ['', ''])
+                next_pair = trans.get('nextPair') or ['', '']
+                np0 = next_pair[0] if len(next_pair) > 0 else ''
+                np1 = next_pair[1] if len(next_pair) > 1 else ''
                 next_t1 = trans.get('nextType1', '')
                 next_t2 = trans.get('nextType2', '')
                 is_match = trans.get('isMatch', True)
                 is_new = trans.get('isNew', False)
 
-                cell_html = f"<b>{next_pair[0]} {next_pair[1]}</b><br/>"
+                cell_html = f"<b>{np0} {np1}</b><br/>"
                 if not is_match:
                     cell_html += f"<font color='#dc2626'><b>{next_t1} {next_t2} [MISMATCH ✗]</b></font>"
                 else:
@@ -487,6 +495,9 @@ def generate_equivalence_pdf_report(
         ]))
         elements.append(t_matrix)
         elements.append(Spacer(1, 12))
+    else:
+        elements.append(Paragraph("<i>No Cartesian product matrix available (DFAs not yet ready or missing transitions).</i>", styles['body']))
+        elements.append(Spacer(1, 10))
 
     # SECTION 4: STEP 3 - FINAL VERDICT
     elements.append(Paragraph("4. Step 3: Final Equivalence Verdict", styles['h2']))

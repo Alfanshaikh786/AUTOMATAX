@@ -665,15 +665,27 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
       });
 
       const url = URL.createObjectURL(blob);
+      const name1 = (dfa1.name || 'DFA1').replace(/\s+/g, '_');
+      const name2 = (dfa2.name || 'DFA2').replace(/\s+/g, '_');
+      const filename = `${name1}_vs_${name2}_equivalence_report.pdf`;
       const a = document.createElement('a');
+      a.style.display = 'none';
       a.href = url;
-      a.download = `${dfa1.name.replace(/\s+/g, '_')}_vs_${dfa2.name.replace(/\s+/g, '_')}_equivalence_report.pdf`;
+      a.download = filename;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+
+      // Defer revocation so Chromium download thread has full window to read blob stream
+      setTimeout(() => {
+        if (document.body.contains(a)) {
+          document.body.removeChild(a);
+        }
+        URL.revokeObjectURL(url);
+      }, 60000);
 
       setFeedback({
         type: 'success',
-        text: '✓ Downloaded full DFA Equivalence academic PDF report successfully.',
+        text: `✓ Downloaded '${filename}' successfully!`,
       });
     } catch (e: any) {
       setFeedback({

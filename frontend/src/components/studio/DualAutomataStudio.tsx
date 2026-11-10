@@ -944,15 +944,25 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
       });
 
       const url = URL.createObjectURL(blob);
+      const filename = `${nfa.name.replace(/\s+/g, '_')}_conversion_report.pdf`;
       const a = document.createElement('a');
+      a.style.display = 'none';
       a.href = url;
-      a.download = `${nfa.name.replace(/\s+/g, '_')}_conversion_report.pdf`;
+      a.download = filename;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+
+      // Clean up after browser has started download stream
+      setTimeout(() => {
+        if (document.body.contains(a)) {
+          document.body.removeChild(a);
+        }
+        URL.revokeObjectURL(url);
+      }, 60000);
 
       setFeedback({
         type: 'success',
-        text: '✓ Downloaded full academic PDF report successfully.',
+        text: `✓ Downloaded '${filename}' successfully!`,
       });
     } catch (e: any) {
       setFeedback({

@@ -166,7 +166,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error("Failed to generate conversion PDF report.");
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(errText || `Server error (${res.status}): Failed to generate conversion PDF report.`);
+    }
     return res.blob();
   },
 
@@ -186,7 +189,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error("Failed to generate equivalence PDF report.");
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(errText || `Server error (${res.status}): Failed to generate equivalence PDF report.`);
+    }
     return res.blob();
   },
 };

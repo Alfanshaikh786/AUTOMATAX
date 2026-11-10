@@ -68,9 +68,17 @@ export const SimulationPane: React.FC<SimulationPaneProps> = ({
     const blob = new Blob([content], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
+    a.style.display = 'none';
     a.href = url;
     a.download = `${automaton.name}_trace_${inputString || 'eps'}.json`;
+    document.body.appendChild(a);
     a.click();
+    setTimeout(() => {
+      if (document.body.contains(a)) {
+        document.body.removeChild(a);
+      }
+      URL.revokeObjectURL(url);
+    }, 60000);
   };
 
   return (
