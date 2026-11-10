@@ -53,16 +53,25 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 # Mount built frontend static files if present (for single-service fullstack deployment)
-frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../frontend/dist"))
-if not os.path.exists(frontend_dist):
-    # Alternative path if root directory was set to backend/
-    frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../frontend/dist"))
+candidate_dirs = [
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "../dist")),
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "../../frontend/dist")),
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../frontend/dist")),
+    os.path.abspath(os.path.join(os.getcwd(), "dist")),
+    os.path.abspath(os.path.join(os.getcwd(), "frontend/dist")),
+]
 
-assets_dir = os.path.join(frontend_dist, "assets")
-if os.path.isdir(assets_dir):
-    app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend_assets")
+frontend_dist = None
+for d in candidate_dirs:
+    if os.path.isfile(os.path.join(d, "index.html")):
+        frontend_dist = d
+        break
 
-if os.path.isfile(os.path.join(frontend_dist, "index.html")):
+if frontend_dist:
+    assets_dir = os.path.join(frontend_dist, "assets")
+    if os.path.isdir(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend_assets")
+
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
         candidate = os.path.join(frontend_dist, full_path)
