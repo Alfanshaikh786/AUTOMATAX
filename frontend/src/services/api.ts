@@ -150,6 +150,45 @@ export const api = {
     if (!res.ok) throw new Error("Failed to generate PDF report.");
     return res.blob();
   },
+
+  async downloadConversionPdf(payload: {
+    source_automaton: AutomatonModel;
+    target_automaton: AutomatonModel;
+    title?: string;
+    conversion_type?: string;
+    state_mappings?: any[];
+    epsilon_closures?: Record<string, string[]>;
+    test_results?: any[];
+    notes?: string;
+  }): Promise<Blob> {
+    const res = await fetch(`${BASE_URL}/reports/conversion-pdf`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error("Failed to generate conversion PDF report.");
+    return res.blob();
+  },
+
+  async downloadEquivalencePdf(payload: {
+    dfa1: AutomatonModel;
+    dfa2: AutomatonModel;
+    title?: string;
+    matrix_rows?: any[];
+    start_match?: boolean;
+    is_equivalent?: boolean;
+    counterexample?: string | null;
+    explanation?: string;
+    notes?: string;
+  }): Promise<Blob> {
+    const res = await fetch(`${BASE_URL}/reports/equivalence-pdf`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error("Failed to generate equivalence PDF report.");
+    return res.blob();
+  },
 };
 
 

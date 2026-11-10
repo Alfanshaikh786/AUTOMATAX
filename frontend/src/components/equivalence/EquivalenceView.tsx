@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AutomatonModel } from '../../types/automata';
 import { AutomataCanvas } from '../graph/AutomataCanvas';
+import { api } from '../../services/api';
 import {
   GitCompare,
   CheckCircle2,
@@ -12,6 +13,9 @@ import {
   AlertTriangle,
   Sparkles,
   Info,
+  Save,
+  Download,
+  Loader2,
 } from 'lucide-react';
 
 interface EquivalenceViewProps {
@@ -621,6 +625,66 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
     };
   }, [dfa1, dfa2, dfa1TransitionList, dfa2TransitionList, autoCompleteDeadState, isDfa1Complete, isDfa2Complete]);
 
+  // Save & PDF Export states and handlers
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+
+  const handleSaveDfas = async () => {
+    try {
+      setIsSaving(true);
+      const saved1 = await api.save(dfa1);
+      const saved2 = await api.save(dfa2);
+      if (onLoadAutomaton) onLoadAutomaton(saved1);
+      setFeedback({
+        type: 'success',
+        text: `✓ Saved both '${saved1.name}' and '${saved2.name}' to storage successfully.`,
+      });
+    } catch (e: any) {
+      setFeedback({
+        type: 'error',
+        text: `Save Error: ${e.message}`,
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    try {
+      setIsDownloadingPdf(true);
+      const blob = await api.downloadEquivalencePdf({
+        dfa1,
+        dfa2,
+        title: `${dfa1.name} vs ${dfa2.name} DFA Equivalence Verification Report`,
+        matrix_rows: equivalenceResult.matrixRows,
+        start_match: equivalenceResult.startMatch,
+        is_equivalent: equivalenceResult.isEquivalent,
+        counterexample: equivalenceResult.counterexample,
+        explanation: equivalenceResult.explanation,
+        notes: `Verification conducted via State-Pairing Cartesian Cross-Product BFS algorithm in AutomataX Equivalence Studio.`
+      });
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${dfa1.name.replace(/\s+/g, '_')}_vs_${dfa2.name.replace(/\s+/g, '_')}_equivalence_report.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setFeedback({
+        type: 'success',
+        text: '✓ Downloaded full DFA Equivalence academic PDF report successfully.',
+      });
+    } catch (e: any) {
+      setFeedback({
+        type: 'error',
+        text: `PDF Generation Error: ${e.message}`,
+      });
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
   // ==========================================
   // CUSTOM STRING TRACE RUNNER
   // ==========================================
@@ -946,9 +1010,31 @@ export const EquivalenceView: React.FC<EquivalenceViewProps> = ({
             <span className="font-semibold text-cyan-400 text-[11px]">Auto-Dead State (∅)</span>
           </label>
 
+          {/* Save DFAs Button */}
+          <button
+            onClick={handleSaveDfas}
+            disabled={isSaving}
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow disabled:opacity-50"
+            title="Save both DFA 1 and DFA 2 to persistent storage"
+          >
+            {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            {isSaving ? 'Saving...' : 'Save'}
+          </button>
+
+          {/* Download Full Equivalence PDF Button */}
+          <button
+            onClick={handleDownloadPdf}
+            disabled={isDownloadingPdf}
+            className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow disabled:opacity-50"
+            title="Download full academic PDF report with specifications, Step 1, Step 2 state-pair matrix, and final verdict"
+          >
+            {isDownloadingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            {isDownloadingPdf ? 'Compiling PDF...' : 'Download PDF'}
+          </button>
+
           <button
             onClick={() => handleLoadPreset(selectedPresetKey)}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 border border-slate-700"
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 border border-slate-700"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             Reset Samples

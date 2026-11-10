@@ -7,10 +7,9 @@ import { SimulationPane } from './components/simulator/SimulationPane';
 import { EquivalenceView } from './components/equivalence/EquivalenceView';
 import { DualAutomataStudio } from './components/studio/DualAutomataStudio';
 import { AIGeneratorModal } from './components/ai/AIGeneratorModal';
-import { ExportModal } from './components/reports/ExportModal';
 
 import {
-  Play, GitCompare, Download,
+  Play, GitCompare,
   Save, Cpu, Workflow, GitFork, Sparkles
 } from 'lucide-react';
 
@@ -37,7 +36,6 @@ export function App() {
   const [highlightStates, setHighlightStates] = useState<string[]>([]);
   const [highlightTransitions, setHighlightTransitions] = useState<Array<{ from: string; to: string; symbol: string }>>([]);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   useEffect(() => {
     // Load pre-seeded benchmark automata from backend
@@ -118,27 +116,6 @@ export function App() {
               );
             })}
           </nav>
-        </div>
-
-        {/* Bottom Current Automaton Status */}
-        <div className="p-3 bg-slate-950 border border-slate-800/80 rounded-xl flex flex-col gap-2">
-          <div className="flex items-center justify-between text-xs font-semibold">
-            <span className="text-slate-300 truncate">{currentAutomaton.name}</span>
-            <span className="px-1.5 py-0.5 bg-cyan-950 border border-cyan-800 text-cyan-300 rounded font-mono text-[10px]">
-              {currentAutomaton.type}
-            </span>
-          </div>
-          <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between">
-            <span>{currentAutomaton.states.length} states</span>
-            <span>Σ: {'{' + currentAutomaton.alphabet.join(',') + '}'}</span>
-          </div>
-          <button
-            onClick={() => setIsExportModalOpen(true)}
-            className="w-full py-1.5 bg-slate-800 hover:bg-slate-750 text-xs font-medium text-slate-200 rounded flex items-center justify-center gap-1.5 transition mt-1"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Export & PDF Report
-          </button>
         </div>
       </aside>
 
@@ -336,13 +313,6 @@ export function App() {
           setCurrentAutomaton(aut);
           setActiveTab('builder');
         }}
-      />
-
-      {/* Export & Report Modal */}
-      <ExportModal
-        isOpen={isExportModalOpen}
-        onClose={() => setIsExportModalOpen(false)}
-        automaton={currentAutomaton}
       />
     </div>
   );

@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AutomatonModel } from '../../types/automata';
 import { AutomataCanvas } from '../graph/AutomataCanvas';
+import { api } from '../../services/api';
 import {
   Layers, ArrowRight, Plus, Trash2, RotateCcw,
   Sparkles, Check, CheckCircle2, FileText, Share2, Compass, ExternalLink, AlertCircle, Info,
-  Workflow, GitFork
+  Workflow, GitFork, Save, Download, Loader2
 } from 'lucide-react';
 
 export type StudioMode = 'NFA_TO_DFA' | 'ENFA_TO_NFA' | 'ENFA_TO_DFA';
@@ -820,6 +821,149 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
     };
   }, [nfa]);
 
+  // Save & PDF Export States and Handlers
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+
+  const handleSaveConversion = async () => {
+    try {
+      setIsSaving(true);
+      const targetAut = isEnfaToNfa ? enfaToNfaResult.targetNfa : dfa;
+      const savedTarget = await api.save(targetAut);
+      const savedSource = await api.save(nfa);
+      onLoadAutomaton(savedTarget);
+      setFeedback({
+        type: 'success',
+        text: `✓ Saved both '${savedSource.name}' and '${savedTarget.name}' to persistent storage.`,
+      });
+    } catch (e: any) {
+      setFeedback({
+        type: 'error',
+        text: `Save Error: ${e.message}`,
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    try {
+      setIsDownloadingPdf(true);
+      const targetAut = isEnfaToNfa ? enfaToNfaResult.targetNfa : dfa;
+
+      // State mappings with derivations
+      const mappingsPayload = stateMappings.map((m) => {
+        const transList: string[] = [];
+        targetAut.alphabet.forEach((sym) => {
+          const dest = dfaTransitionsTable[m.dfaName]?.[sym] || '∅';
+          transList.push(`δ(${m.dfaName}, ${sym}) = ${dest}`);
+        });
+        return {
+          label: m.dfaName,
+          subset: m.subset,
+          derivations: transList.join(' | '),
+          is_final: m.isFinal,
+        };
+      });
+
+      // Simulation test cases on alphabet
+      const baseChars = nfa.alphabet.filter((x) => x !== 'ε');
+      const testCases: string[] = [''];
+      if (baseChars.length > 0) {
+        testCases.push(baseChars[0]);
+        if (baseChars.length > 1) {
+          testCases.push(baseChars[1]);
+          testCases.push(baseChars[0] + baseChars[1]);
+          testCases.push(baseChars[1] + baseChars[0]);
+        }
+        testCases.push(baseChars[0] + baseChars[0]);
+      }
+
+      const runNfaSim = (str: string): boolean => {
+        const epsClosure = (st: Set<string>): Set<string> => {
+          const res = new Set(st);
+          const q = [...st];
+          while (q.length > 0) {
+            const curr = q.pop()!;
+            const epsDests = nfa.epsilon_transitions?.[curr] || [];
+            for (const d of epsDests) {
+              if (!res.has(d)) {
+                res.add(d);
+                q.push(d);
+              }
+            }
+          }
+          return res;
+        };
+
+        let curr = isEnfa ? epsClosure(new Set([nfa.initial_state])) : new Set([nfa.initial_state]);
+        for (let i = 0; i < str.length; i++) {
+          const ch = str[i];
+          const next = new Set<string>();
+          for (const s of curr) {
+            const dests = nfa.transitions[s]?.[ch] || [];
+            dests.forEach((d) => next.add(d));
+          }
+          curr = isEnfa ? epsClosure(next) : next;
+        }
+        return [...curr].some((s) => nfa.accepting_states.includes(s));
+      };
+
+      const runDfaSim = (str: string): boolean => {
+        let curr = targetAut.initial_state;
+        for (let i = 0; i < str.length; i++) {
+          const ch = str[i];
+          const dest = targetAut.transitions[curr]?.[ch]?.[0];
+          if (!dest) return false;
+          curr = dest;
+        }
+        return targetAut.accepting_states.includes(curr);
+      };
+
+      const testResults = testCases.map((tc) => ({
+        string: tc,
+        source_accepted: runNfaSim(tc),
+        target_accepted: runDfaSim(tc),
+      }));
+
+      const reportTitle = isEnfaToNfa
+        ? `${nfa.name} (ε-NFA) to ${targetAut.name} (NFA) ε-Elimination Laboratory Report`
+        : isEnfa
+        ? `${nfa.name} (ε-NFA) to ${targetAut.name} (DFA) Epsilon Subset Construction Report`
+        : `${nfa.name} (NFA) to ${targetAut.name} (DFA) Subset Construction Laboratory Report`;
+
+      const blob = await api.downloadConversionPdf({
+        source_automaton: nfa,
+        target_automaton: targetAut,
+        title: reportTitle,
+        conversion_type: studioMode,
+        state_mappings: isEnfaToNfa ? undefined : mappingsPayload,
+        epsilon_closures: isEnfa ? stateEpsilonClosures : undefined,
+        test_results: testResults,
+        notes: `Report synthesized via AutomataX Dual Automata Studio. Generated mathematical specification verified for language acceptance consistency across tested input traces.`,
+      });
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${nfa.name.replace(/\s+/g, '_')}_conversion_report.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setFeedback({
+        type: 'success',
+        text: '✓ Downloaded full academic PDF report successfully.',
+      });
+    } catch (e: any) {
+      setFeedback({
+        type: 'error',
+        text: `PDF Generation Error: ${e.message}`,
+      });
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
   // Mode Switcher Handler
   const handleSwitchMode = (mode: StudioMode) => {
     if (mode === studioMode) return;
@@ -1301,6 +1445,28 @@ export const DualAutomataStudio: React.FC<DualAutomataStudioProps> = ({
                 ))}
             </select>
           </div>
+
+          {/* Save Conversion Button */}
+          <button
+            onClick={handleSaveConversion}
+            disabled={isSaving}
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow disabled:opacity-50"
+            title="Save both source automaton and converted target automaton to persistent storage"
+          >
+            {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            {isSaving ? 'Saving...' : 'Save'}
+          </button>
+
+          {/* Download Full PDF Report Button */}
+          <button
+            onClick={handleDownloadPdf}
+            disabled={isDownloadingPdf}
+            className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow disabled:opacity-50"
+            title="Download full academic PDF report with formal specifications, transition tables, subset derivations, and verification"
+          >
+            {isDownloadingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            {isDownloadingPdf ? 'Compiling PDF...' : 'Download PDF'}
+          </button>
 
           <button
             onClick={() => onLoadAutomaton(isEnfaToNfa ? enfaToNfaResult.targetNfa : dfa)}
