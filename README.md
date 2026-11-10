@@ -1,6 +1,13 @@
 # AutomataX — The Intelligent Automata Construction, Conversion & Verification Laboratory
 
-**AutomataX** is a unified computational laboratory and educational software platform for automata theory and computational mathematics. It bridges interactive visual graph construction, mathematical formal language algorithms, step-by-step educational animations, and rigorous verification engines.
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-18+-61DAFB.svg?style=flat&logo=react&logoColor=black)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6.svg?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-3.4+-38B2AC.svg?style=flat&logo=tailwind-css&logoColor=white)](https://tailwindcss.com)
+[![ReportLab](https://img.shields.io/badge/ReportLab-PDF_Engine-FF6F00.svg?style=flat)](https://www.reportlab.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+**AutomataX** is a unified computational laboratory and interactive platform for automata theory, formal languages, and computational mathematics. It bridges interactive visual graph construction, synchronized transition tables, step-by-step conversion laboratories, state-pairing equivalence verification, and publication-ready academic PDF reporting.
 
 ---
 
@@ -10,167 +17,235 @@
 AutomataX/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                     # FastAPI app with CORS, Lifespan & route registration
+│   │   ├── main.py                     # FastAPI application with CORS, lifespan & router registration
 │   │   ├── core/
-│   │   │   ├── automaton_types.py      # Enums for automata, algorithms, and severities
-│   │   │   ├── validation.py          # Mathematical validation of DFA, NFA, ENFA
-│   │   │   └── exceptions.py          # Structured error classes
+│   │   │   ├── automaton_types.py      # Enums for automata, algorithms, and issue severities
+│   │   │   ├── validation.py           # Mathematical validation of DFA, NFA, and ε-NFA 5-tuples
+│   │   │   └── exceptions.py           # Structured computational error classes
 │   │   ├── models/
-│   │   │   ├── automaton.py           # Unified Pydantic models for automata, steps, simulations
-│   │   │   ├── regular_expression.py  # Regex AST nodes and Glushkov metadata
-│   │   │   └── grammar.py             # Right-linear grammar and production models
+│   │   │   ├── automaton.py            # Pydantic models with transition normalization and layout metadata
+│   │   │   ├── regular_expression.py   # Regex AST nodes and Glushkov metadata
+│   │   │   └── grammar.py              # Right-linear grammar and production models
 │   │   ├── algorithms/
-│   │   │   ├── epsilon_closure.py     # DFS/BFS epsilon-closure calculation with cycle detection
-│   │   │   ├── epsilon_elimination.py # ε-NFA → NFA transformation
-│   │   │   ├── subset_construction.py # Reachable subset construction (NFA/ε-NFA → DFA)
-│   │   │   ├── minimization.py        # Hopcroft's partition refinement DFA minimization
-│   │   │   ├── equivalence.py         # Cartesian product automaton BFS for shortest counterexample
-│   │   │   ├── regex_parser.py        # Recursive-descent AST parser for regular expressions
-│   │   │   ├── thompson_glushkov.py   # Thompson ε-NFA & Glushkov position-based NFA
-│   │   │   ├── state_elimination.py   # GNFA state elimination: DFA/NFA/ENFA → Regular Expression
-│   │   │   ├── grammar_conversion.py  # Right-linear grammar ↔ NFA conversions
-│   │   │   └── automata_operations.py # Union, Intersection, Complement, Diff, Concat, Star, Reverse
+│   │   │   ├── epsilon_closure.py      # DFS/BFS ε-closure calculation with cycle detection
+│   │   │   ├── epsilon_elimination.py  # ε-NFA → NFA transformation algorithm
+│   │   │   ├── subset_construction.py  # Reachable subset construction (NFA / ε-NFA → DFA)
+│   │   │   ├── minimization.py         # Hopcroft's partition refinement DFA minimization
+│   │   │   ├── equivalence.py          # Cartesian product automaton BFS for shortest counterexample
+│   │   │   ├── regex_parser.py         # Recursive-descent AST parser for regular expressions
+│   │   │   ├── thompson_glushkov.py    # Thompson ε-NFA & Glushkov position-based NFA
+│   │   │   ├── state_elimination.py    # GNFA state elimination: DFA/NFA/ENFA → Regular Expression
+│   │   │   ├── grammar_conversion.py   # Right-linear grammar ↔ NFA conversions
+│   │   │   └── automata_operations.py  # Union, Intersection, Complement, Difference, Concatenation, Star, Reversal
 │   │   ├── simulation/
-│   │   │   └── simulator.py           # String simulator for DFA, NFA, and ε-NFA with active state sets
+│   │   │   └── simulator.py            # Step-by-step string simulation with active state sets
 │   │   ├── optimization/
-│   │   │   └── debugger.py            # Diagnostic engine: unreachable, dead, missing transitions, fixes
+│   │   │   └── debugger.py             # Diagnostic engine: unreachable, dead states, non-determinism
 │   │   ├── services/
-│   │   │   ├── ai_service.py          # Natural language synthesizer with deterministic verification
-│   │   │   ├── report_service.py      # ReportLab academic PDF generator
-│   │   │   └── project_service.py     # SQLite persistence for projects and benchmark automata
+│   │   │   ├── ai_service.py           # Natural-language to DFA synthesizer with deterministic verification
+│   │   │   ├── report_service.py       # ReportLab PDF report generator for conversions & equivalence
+│   │   │   └── project_service.py      # SQLite storage for persistent automata
 │   │   └── api/
-│   │       ├── automata_routes.py     # CRUD, validation, projects
-│   │       ├── conversion_routes.py   # Conversion endpoints with step tracing
-│   │       ├── regex_routes.py        # Regex AST, Thompson, Glushkov, DFA
-│   │       ├── grammar_routes.py      # Grammar validation and conversions
-│   │       ├── operations_routes.py   # Set-theoretic and language closure operations
-│   │       ├── simulation_routes.py   # Single and batch string simulation
-│   │       ├── equivalence_routes.py  # Mathematical language equivalence verification
-│   │       ├── debugger_routes.py     # Automaton diagnostics & fixes
-│   │       ├── reports_routes.py      # PDF report generation
-│   │       ├── ai_routes.py           # Natural-language specification synthesizer
-│   │       └── practice_routes.py     # Exercise challenge academy & automated grader
+│   │       ├── automata_routes.py      # CRUD, persistence, validation
+│   │       ├── conversion_routes.py    # Conversion endpoints with step tracing
+│   │       ├── equivalence_routes.py   # Formal language equivalence verification
+│   │       ├── reports_routes.py       # PDF report generation (RFC 5987/6266 HTTP headers)
+│   │       ├── simulation_routes.py    # Single and batch string simulation
+│   │       ├── regex_routes.py         # Regex AST, Thompson, Glushkov, GNFA
+│   │       ├── grammar_routes.py       # Grammar validation and conversions
+│   │       ├── operations_routes.py    # Set-theoretic language operations
+│   │       ├── debugger_routes.py      # Automaton diagnostics & fixes
+│   │       ├── ai_routes.py            # AI natural language synthesizer
+│   │       └── practice_routes.py      # Challenge academy and automated grader
 │   └── tests/
-│       ├── test_automata_algorithms.py# Mathematical unit tests (all 11 test suites)
-│       └── test_api.py                # FastAPI end-to-end integration tests
+│       ├── test_automata_algorithms.py # Mathematical unit test suite
+│       ├── test_api.py                 # FastAPI integration tests
+│       └── test_nfa_multi_dest.py      # Non-deterministic transition tests
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── graph/AutomataCanvas.tsx     # Interactive SVG canvas with drag, pan, zoom, dagre layout
-│   │   │   ├── tables/TransitionTable.tsx   # Dual-mode synchronized transition table
-│   │   │   ├── conversion/StepPlayer.tsx    # Conversion animation player (Play, Pause, Speed, Steps)
-│   │   │   ├── simulator/SimulationPane.tsx # Interactive string simulator with path trace & batch suite
-│   │   │   ├── equivalence/EquivalenceView.tsx # Side-by-side equivalence & shortest counterexample
-│   │   │   ├── debugger/DebuggerView.tsx    # Diagnostics report with one-click fix buttons
-│   │   │   ├── whatif/WhatIfLab.tsx         # Live experimentation with language impact matrix
-│   │   │   ├── regex/RegexLab.tsx           # Regex conversions: Thompson, Glushkov, GNFA
-│   │   │   ├── grammar/GrammarLab.tsx       # Right-linear grammar editor and NFA generator
-│   │   │   ├── operations/OperationsLab.tsx # 7 algebraic automata operations
-│   │   │   ├── comparison/ComparisonLab.tsx # Density & metric comparison (NFA vs DFA vs Minimal)
-│   │   │   ├── practice/PracticeLab.tsx     # Student academy, hints, and equivalence evaluation
-│   │   │   ├── ai/AIGeneratorModal.tsx      # Natural language prompt synthesizer
-│   │   │   └── reports/ExportModal.tsx      # Academic PDF, JSON, and CSV export
-│   │   ├── services/api.ts                  # Typed client for all backend endpoints
-│   │   ├── types/automata.ts                # TypeScript interfaces for all automata models
-│   │   ├── App.tsx                          # Master dashboard and laboratory navigation
-│   │   └── index.css                        # Tailwind CSS styling
-├── start_backend.bat                        # Launcher for FastAPI backend
-├── start_frontend.bat                       # Launcher for Vite React frontend
-└── start_all.bat                            # Launches both services simultaneously
+│   │   │   ├── graph/
+│   │   │   │   └── AutomataCanvas.tsx  # Interactive SVG graph canvas (drag, pan, zoom, curved edges)
+│   │   │   ├── tables/
+│   │   │   │   └── TransitionTable.tsx # Synchronized multi-destination transition table
+│   │   │   ├── studio/
+│   │   │   │   └── DualAutomataStudio.tsx # Dual conversion studio (NFA → DFA, ε-NFA → NFA/DFA)
+│   │   │   ├── equivalence/
+│   │   │   │   └── EquivalenceView.tsx # 3-Step textbook DFA equivalence checker & Cartesian matrix
+│   │   │   ├── simulator/
+│   │   │   │   └── SimulationPane.tsx  # Interactive string simulator with path trace & batch tests
+│   │   │   └── ai/
+│   │   │       └── AIGeneratorModal.tsx# AI Natural Language to DFA modal dialog
+│   │   ├── services/
+│   │   │   └── api.ts                  # Typed TypeScript REST client
+│   │   ├── types/
+│   │   │   └── automata.ts             # Type definitions for automata, steps, and matrices
+│   │   ├── App.tsx                     # Master laboratory dashboard layout
+│   │   ├── main.tsx                    # React DOM root entry point
+│   │   └── index.css                   # Tailwind CSS styling and theme
+│   ├── vite.config.ts                  # Vite development server configuration
+│   └── package.json                    # Frontend dependencies and build scripts
+├── start_backend.bat                   # Batch script to launch FastAPI server
+├── start_frontend.bat                  # Batch script to launch Vite dev server
+└── start_all.bat                       # Batch script to launch full stack
 ```
 
 ---
 
 ## 2. Key Modules & Features
 
-### A. Dual-Mode Automata Builder
-- **Visual Graph Editor**: Interactive SVG canvas supporting standard automata conventions (circles for states, double circles for accepting states, incoming arrows for initial state, curved transitions with self-loops).
-- **Structured Transition Table**: Fully synchronized with the graph editor. Editing a cell in the table immediately updates the graph and vice versa.
-- **Auto Layout**: Integrated Dagre hierarchical directed graph layout.
+### A. Interactive Automata Builder
+- **Visual Graph Canvas**: Dynamic SVG-based canvas rendering states, initial state indicator arrows ($\to q_0$), double-ring final states, curved directed transitions, self-loops, and multi-symbol edge labels.
+- **Synchronized Transition Table**: Real-time two-way synchronization between visual graph nodes and tabular mathematical transition entries.
+- **Direct Multi-Type Support**: Seamlessly build **DFA**, **NFA** (with multiple destination sets $\{q_1, q_2\}$), and **$\varepsilon$-NFA** (with spontaneous $\varepsilon$ transitions).
 
-### B. Core Conversions with Interactive Step Player
-- **NFA → DFA**: Reachable subset construction algorithm. Never generates unnecessary theoretical subsets; computes canonical subset names, detects newly discovered subsets, and flags accepting subsets.
-- **ε-NFA → NFA**: Epsilon-elimination algorithm via $\delta'(q, a) = \varepsilon\text{-closure}(\text{move}(\varepsilon\text{-closure}(q), a))$.
-- **DFA Minimization**: Hopcroft's partition refinement algorithm. Removes unreachable states, completes missing transitions with a sink state, refines partitions by distinguishing symbols, and contracts equivalence classes.
-- **Step Controls**: Play, Pause, Resume, Previous, Next, Reset, Speed Adjustment (0.5x, 1x, 2x, 4x), highlighted transitions, and step-by-step mathematical explanations.
+### B. Dual Automata Conversion Studios
+Three specialized laboratories for algorithmic transformation:
+1. **Dual NFA Studio (NFA $\to$ DFA)**:
+   - Reachable subset construction algorithm.
+   - Computes state power-set mappings with mathematical derivations: $\delta_D([q_0, q_1], a) = \delta_N(q_0, a) \cup \delta_N(q_1, a)$.
+   - Auto-generates complete dead state ($\emptyset$) handling for missing transitions.
+   - Live dual-machine acceptance test suite comparing string acceptance between source NFA and target DFA.
+2. **Dual $\varepsilon$-NFA Studio ($\varepsilon$-NFA $\to$ NFA)**:
+   - Epsilon-elimination algorithm via:
+     $$\delta'(q, a) = \varepsilon\text{-closure}(\delta(\varepsilon\text{-closure}(q), a))$$
+   - Displays full $\varepsilon$-closure sets for every state.
+3. **Dual $\varepsilon$-NFA Studio ($\varepsilon$-NFA $\to$ DFA)**:
+   - Direct subset construction on $\varepsilon$-closures without intermediate conversion.
 
-### C. Equivalence Checker & Shortest Counterexample Engine
-- Computes $L(A) \equiv L(B)$ mathematically by converting both automata to complete DFAs over the joint alphabet $\Sigma_A \cup \Sigma_B$ and exploring the Cartesian product automaton.
-- If $L(A) \neq L(B)$, Breadth-First Search (BFS) finds the **shortest distinguishing counterexample** string $w$.
-- Displays side-by-side simulation traces of $w$ on both automata showing exactly where and why they diverge.
+### C. DFA Equivalence Checker (Textbook 3-Step Method)
+Rigorous state-pairing equivalence checker following formal theoretical computer science curriculum:
+- **Step 1: Initial State & Acceptance Status Check**:
+  - Compares $q_{01}$ and $q_{02}$ to ensure both are either Final States (FS) or Non-Final Intermediate States (IS).
+- **Step 2: State-Pair Cartesian Cross-Product Transition Table ($Q_1 \times Q_2$)**:
+  - Explores reachable state pairs $(q_i, q_j)$ starting from $(q_{01}, q_{02})$.
+  - Evaluates transitions for each alphabet symbol:
+    $$\delta((q_i, q_j), a) = (\delta_1(q_i, a), \delta_2(q_j, a))$$
+  - Marks state pair categories (`FS FS`, `IS IS`, or mismatching `FS IS` / `IS FS`).
+  - Highlights newly discovered pairs (`[New]`) and flags conflicting pairs (`[MISMATCH ✗]`).
+- **Step 3: Final Equivalence Verdict & Counterexample**:
+  - Outputs a clear verdict: *Both the DFAs are equivalent to each other* or *The DFAs are NOT equivalent*.
+  - When non-equivalent, generates the **shortest distinguishing counterexample string** $w$ with step-by-step path divergence traces.
+- **Interactive Controls**:
+  - Add/delete states, symbols, final states, and individual transitions for each machine.
+  - Auto-Dead State ($\emptyset$) completion toggle.
+  - Reset to textbook benchmark presets with one click.
 
-### D. Regular Expression Laboratory
-- Formal recursive-descent lexer and parser building an explicit AST.
-- **Thompson's Construction**: Generates modular sub-automata for basic symbols, epsilon, union, concatenation, and Kleene star.
-- **Glushkov's Construction**: Position-based direct NFA construction utilizing nullable, firstpos, lastpos, and followpos tables.
-- **GNFA State Elimination**: Transforms DFA/NFA/ENFA into regular expressions via $R_{ij} = R_{ij} \cup R_{ik}(R_{kk})^* R_{kj}$ with algebraic string simplifications.
+### D. String Acceptance Simulator
+- Single-string step-by-step tracer highlighting active states and traversed transitions.
+- Multi-string batch simulation suite with pass/fail evaluation against expected outcomes.
+- Detailed step logs with execution paths and rejection explanations.
 
-### E. Right-Linear Grammar Laboratory
-- Dedicated editor for regular right-linear grammars ($A \to w B$, $A \to w$, $A \to \varepsilon$).
-- Strictly rejects general Context-Free Grammar productions with informative error messages explaining why general CFGs cannot be represented as finite automata.
-- Bidirectional conversions: Grammar $\to$ NFA and Automaton $\to$ Grammar.
+### E. AI Automata Synthesizer (Natural Language $\to$ DFA)
+- Translates plain English specifications (e.g. *"Binary strings containing an odd number of 1s and ending with 0"*) into mathematically verified automata.
+- Powered by Google Gemini with deterministic structural validation and canonicalization.
 
-### F. Automata Operations Laboratory
-- Implements 7 formal language operations:
-  1. **Union**: $L(A) \cup L(B)$
-  2. **Intersection**: $L(A) \cap L(B)$ (via Cartesian product)
-  3. **Complement**: $\Sigma^* \setminus L(A)$ (via complete DFA state inversion)
-  4. **Difference**: $L(A) \setminus L(B) = L(A) \cap L(B)^c$
-  5. **Concatenation**: $L(A) \cdot L(B)$
-  6. **Kleene Star**: $L(A)^*$
-  7. **Reversal**: $L(A)^R$
-
-### G. String Simulator & Diagnostics
-- Simulates individual strings with step-by-step path traces, active state sets, and invalid symbol detection.
-- Batch evaluation suite for multi-string testing.
-- Diagnostic debugger identifying unreachable states, dead sink states, and DFA non-determinism with one-click fix suggestions.
-
-### H. Academy & Practice Challenges
-- Practice exercises with beginner, intermediate, and advanced difficulty.
-- Step-by-step progressive hints.
-- Automated grading engine that evaluates solutions by **formal mathematical language equivalence** (not superficial state names).
-
-### I. Academic Exports & Reports
-- **PDF Report Generation**: Native ReportLab generator producing publication-ready academic reports with formal 5-tuple specifications, transition tables, conversion histories, and simulation logs.
-- **JSON & CSV Exports**: Canonical JSON schema and CSV transition tables.
+### F. Academic PDF Reporting Engine
+- **Native ReportLab Generation**: Compiles publication-grade, multi-page vector PDF reports.
+- **Conversion Laboratory Reports**:
+  - Formal 5-tuple specifications $M = (Q, \Sigma, \delta, q_0, F)$ for source and target machines.
+  - Transition tables (including $\varepsilon$ columns where applicable).
+  - Reachability $\varepsilon$-closure tables.
+  - Subset state mapping derivations and transition formulas.
+  - Empirical string acceptance test suite comparison.
+- **Equivalence Verification Reports**:
+  - 5-tuple definitions of DFA 1 and DFA 2.
+  - Step 1 initial state status verification.
+  - Step 2 2D Cartesian product state-pair matrix table with color-coded match status.
+  - Step 3 final verdict with counterexample analysis.
+- **HTTP & Browser Compliant**:
+  - RFC 5987 / RFC 6266 compliant `Content-Disposition` headers with safe ASCII fallbacks for Greek letters ($\varepsilon, \Sigma, \delta$) and symbols ($\emptyset$).
+  - Non-blocking browser download trigger with deferred blob URL revocation.
 
 ---
 
-## 3. Installation & Quickstart
+## 3. REST API Reference
+
+| Method | Endpoint | Description |
+|:-------|:---------|:------------|
+| `GET` | `/api/automata` | List all saved automata |
+| `POST` | `/api/automata` | Save or update an automaton |
+| `GET` | `/api/automata/{id}` | Retrieve automaton by ID |
+| `POST` | `/api/automata/validate` | Mathematically validate a 5-tuple definition |
+| `POST` | `/api/conversions/nfa-to-dfa` | Subset construction with step-by-step trace |
+| `POST` | `/api/conversions/enfa-to-nfa` | $\varepsilon$-elimination conversion |
+| `POST` | `/api/conversions/minimize` | Hopcroft DFA minimization |
+| `POST` | `/api/equivalence/verify` | Cartesian product BFS language equivalence |
+| `POST` | `/api/simulation/simulate` | Single string acceptance trace |
+| `POST` | `/api/simulation/batch` | Batch string acceptance testing |
+| `POST` | `/api/ai/generate-automaton` | AI natural-language prompt synthesizer |
+| `POST` | `/api/reports/pdf` | Generate PDF report for a single automaton |
+| `POST` | `/api/reports/conversion-pdf` | Generate comprehensive conversion laboratory PDF |
+| `POST` | `/api/reports/equivalence-pdf` | Generate 3-step DFA equivalence verification PDF |
+
+Interactive Swagger documentation is accessible live at `http://127.0.0.1:8000/docs`.
+
+---
+
+## 4. Installation & Quickstart
 
 ### Prerequisites
-- Python 3.10+ (tested with Python 3.14.3)
-- Node.js 18+ (tested with Node.js v26.1.0)
-- npm or pnpm
+- **Python 3.10+** (tested on Python 3.10 – 3.14)
+- **Node.js 18+** (tested on Node.js v20 – v26)
+- **npm** or **pnpm**
 
 ### Quick Launch (Windows)
-Double click `start_all.bat` or run:
+Double-click `start_all.bat` or run in terminal:
 ```cmd
 start_all.bat
 ```
-This automatically launches:
-- **Backend API**: `http://127.0.0.1:8000` (Swagger docs at `/docs`)
-- **Frontend UI**: `http://127.0.0.1:5173`
+This automatically starts:
+- **FastAPI Backend**: `http://127.0.0.1:8000`
+- **Vite React Frontend**: `http://localhost:5173`
+
+---
 
 ### Manual Startup
 
-#### 1. Backend Server
-```cmd
+#### 1. Backend Server Setup
+```bash
 cd backend
-venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+python -m venv venv
+
+# Windows:
+venv\Scripts\activate
+# macOS/Linux:
+source venv/bin/activate
+
+pip install -r requirements.txt
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-#### 2. Frontend Development Server
-```cmd
+#### 2. Frontend Setup
+```bash
 cd frontend
+npm install
 npm run dev
 ```
 
-### Running Test Suite
-Execute the full test suite in `backend/`:
-```cmd
+#### 3. Running Test Suites
+Run the backend mathematical verification tests:
+```bash
 cd backend
 venv\Scripts\pytest.exe -v
 ```
-All 16 algorithm and API integration tests will run and report status.
 
+Build the frontend production bundle:
+```bash
+cd frontend
+npm run build
+```
+
+---
+
+## 5. Technology Stack
+
+- **Backend**: Python, FastAPI, Uvicorn, Pydantic v2, ReportLab, SQLite
+- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, Lucide React, Dagre Graph Layout
+- **Testing**: Pytest, FastAPI TestClient, Vitest
+
+---
+
+## 6. License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
